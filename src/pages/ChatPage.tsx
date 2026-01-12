@@ -5,6 +5,25 @@ import type { ChatSession, Message } from '../types/models'
 import { getEmojiPath } from 'wechat-emojis'
 import './ChatPage.scss'
 
+const SESSION_MESSAGE_CACHE_LIMIT = 150
+const SESSION_MESSAGE_CACHE_MAX_ENTRIES = 200
+const sessionMessageCache = new Map<string, Message[]>()
+
+const cacheSessionMessages = (sessionId: string, messages: Message[]) => {
+  if (!sessionId) return
+  const trimmed = messages.length > SESSION_MESSAGE_CACHE_LIMIT
+    ? messages.slice(-SESSION_MESSAGE_CACHE_LIMIT)
+    : messages.slice()
+  sessionMessageCache.set(sessionId, trimmed)
+  if (sessionMessageCache.size > SESSION_MESSAGE_CACHE_MAX_ENTRIES) {
+    const oldestKey = sessionMessageCache.keys().next().value
+    if (oldestKey) {
+      sessionMessageCache.delete(oldestKey)
+    }
+  }
+}
+
+
 interface ChatPageProps {
   // 保留接口以备将来扩展
 }
@@ -22,66 +41,6 @@ interface SessionDetail {
   latestMessageTime?: number
   messageTables: { dbName: string; tableName: string; count: number }[]
 }
-
-// 全局头像加载队列管理器（限制并发，避免卡顿）
-class AvatarLoadQueue {
-  private queue: Array<{ url: string; resolve: () => void; reject: () => void }> = []
-  private loading = new Set<string>()
-  private readonly maxConcurrent = 1 // 一次只加载1个头像，避免卡顿
-  private readonly delayBetweenBatches = 100 // 批次间延迟100ms，给UI喘息时间
-
-  async enqueue(url: string): Promise<void> {
-    // 如果已经在加载中，直接返回
-    if (this.loading.has(url)) {
-      return Promise.resolve()
-    }
-
-    return new Promise((resolve, reject) => {
-      this.queue.push({ url, resolve, reject })
-      this.processQueue()
-    })
-  }
-
-  private async processQueue() {
-    // 如果已达到最大并发数，等待
-    if (this.loading.size >= this.maxConcurrent) {
-      return
-    }
-
-    // 如果队列为空，返回
-    if (this.queue.length === 0) {
-      return
-    }
-
-    // 取出一个任务
-    const task = this.queue.shift()
-    if (!task) return
-
-    this.loading.add(task.url)
-
-    // 加载图片
-    const img = new Image()
-    img.onload = () => {
-      this.loading.delete(task.url)
-      task.resolve()
-      // 延迟一下再处理下一个，避免一次性加载太多
-      setTimeout(() => this.processQueue(), this.delayBetweenBatches)
-    }
-    img.onerror = () => {
-      this.loading.delete(task.url)
-      task.reject()
-      setTimeout(() => this.processQueue(), this.delayBetweenBatches)
-    }
-    img.src = task.url
-  }
-
-  clear() {
-    this.queue = []
-    this.loading.clear()
-  }
-}
-
-const avatarLoadQueue = new AvatarLoadQueue()
 
 // 头像组件 - 支持骨架屏加载和懒加载（优化：限制并发，使用 memo 避免不必要的重渲染）
 // 会话项组件（使用 memo 优化，避免不必要的重渲染）
@@ -142,7 +101,6 @@ const SessionAvatar = React.memo(function SessionAvatar({ session, size = 48 }: 
   const [imageLoaded, setImageLoaded] = useState(false)
   const [imageError, setImageError] = useState(false)
   const [shouldLoad, setShouldLoad] = useState(false)
-  const [isInQueue, setIsInQueue] = useState(false)
   const imgRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const isGroup = session.username.includes('@chatroom')
@@ -154,59 +112,13 @@ const SessionAvatar = React.memo(function SessionAvatar({ session, size = 48 }: 
     return chars[0] || '?'
   }
 
-  // 使用 Intersection Observer 实现懒加载（优化性能）
-  useEffect(() => {
-    if (!containerRef.current || shouldLoad || isInQueue) return
-    if (!session.avatarUrl) {
-      // 没有头像URL，不需要加载
-      return
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting && !isInQueue) {
-            // 加入加载队列，而不是立即加载
-            setIsInQueue(true)
-            avatarLoadQueue.enqueue(session.avatarUrl!).then(() => {
-              setShouldLoad(true)
-            }).catch(() => {
-              setImageError(true)
-            }).finally(() => {
-              setIsInQueue(false)
-            })
-            observer.disconnect()
-          }
-        })
-      },
-      {
-        rootMargin: '50px' // 减少预加载距离，只提前50px
-      }
-    )
-
-    observer.observe(containerRef.current)
-
-    return () => {
-      observer.disconnect()
-    }
-  }, [session.avatarUrl, shouldLoad, isInQueue])
-
-  // 当 avatarUrl 变化时重置状态
   useEffect(() => {
     setImageLoaded(false)
     setImageError(false)
-    setShouldLoad(false)
-    setIsInQueue(false)
+    setShouldLoad(Boolean(session.avatarUrl))
   }, [session.avatarUrl])
 
-  // 检查图片是否已经从缓存加载完成
-  useEffect(() => {
-    if (shouldLoad && imgRef.current?.complete && imgRef.current?.naturalWidth > 0) {
-      setImageLoaded(true)
-    }
-  }, [session.avatarUrl, shouldLoad])
-
-  const hasValidUrl = session.avatarUrl && !imageError && shouldLoad
+  const hasValidUrl = Boolean(session.avatarUrl && !imageError && shouldLoad)
 
   return (
     <div
@@ -380,10 +292,10 @@ function ChatPage(_props: ChatPageProps) {
         // 确保 nextSessions 也是数组
         if (Array.isArray(nextSessions)) {
           setSessions(nextSessions)
-          // 延迟启动联系人信息加载，确保UI先渲染完成
+          // 启动联系人信息加载，UI 已经渲染完成
           setTimeout(() => {
             void enrichSessionsContactInfo(nextSessions)
-          }, 500)
+          }, 0)
         } else {
           console.error('mergeSessions returned non-array:', nextSessions)
           setSessions(sessionsArray)
@@ -420,9 +332,6 @@ function ChatPage(_props: ChatPageProps) {
     console.log(`[性能监控] 开始加载联系人信息，会话数: ${sessions.length}`)
     const totalStart = performance.now()
     
-    // 延迟启动，等待UI渲染完成
-    await new Promise(resolve => setTimeout(resolve, 500))
-    
     // 检查是否被取消
     if (enrichCancelledRef.current) {
       isEnrichingRef.current = false
@@ -440,10 +349,10 @@ function ChatPage(_props: ChatPageProps) {
 
       console.log(`[性能监控] 需要加载的联系人信息: ${needEnrich.length} 个`)
 
-      // 进一步减少批次大小，每批3个，避免DLL调用阻塞
-      const batchSize = 3
+      // 每次最多查询更多联系人，减少批次数
+      const batchSize = 20
       let loadedCount = 0
-      
+     
       for (let i = 0; i < needEnrich.length; i += batchSize) {
         // 如果正在滚动，暂停加载
         if (isScrollingRef.current) {
@@ -462,30 +371,14 @@ function ChatPage(_props: ChatPageProps) {
         const batch = needEnrich.slice(i, i + batchSize)
         const usernames = batch.map(s => s.username)
         
-        // 使用 requestIdleCallback 延迟执行，避免阻塞UI
-        await new Promise<void>((resolve) => {
-          if ('requestIdleCallback' in window) {
-            window.requestIdleCallback(() => {
-              void loadContactInfoBatch(usernames).then(() => resolve())
-            }, { timeout: 2000 })
-          } else {
-            setTimeout(() => {
-              void loadContactInfoBatch(usernames).then(() => resolve())
-            }, 300)
-          }
-        })
+        // 在执行 DLL 请求前让出控制权以保持响应
+        await new Promise(resolve => setTimeout(resolve, 0))
+        await loadContactInfoBatch(usernames)
         
         loadedCount += batch.length
         const batchTime = performance.now() - batchStart
         if (batchTime > 200) {
           console.warn(`[性能监控] 批次 ${Math.floor(i / batchSize) + 1}/${Math.ceil(needEnrich.length / batchSize)} 耗时: ${batchTime.toFixed(2)}ms (已加载: ${loadedCount}/${needEnrich.length})`)
-        }
-        
-        // 批次间延迟，给UI更多时间（DLL调用可能阻塞，需要更长的延迟）
-        if (i + batchSize < needEnrich.length && !enrichCancelledRef.current) {
-          // 如果不在滚动，可以延迟短一点
-          const delay = isScrollingRef.current ? 1000 : 800
-          await new Promise(resolve => setTimeout(resolve, delay))
         }
       }
       
@@ -638,6 +531,32 @@ function ChatPage(_props: ChatPageProps) {
     }
   }
 
+  const loadCachedMessagesForSession = async (sessionId: string) => {
+    if (!sessionId) return
+    const cached = sessionMessageCache.get(sessionId)
+    if (cached && cached.length > 0) {
+      setMessages(cached)
+      setHasInitialMessages(true)
+      return
+    }
+    try {
+      const result = await window.electronAPI.chat.getCachedMessages(sessionId)
+      if (result.success && Array.isArray(result.messages) && result.messages.length > 0) {
+        const trimmed = result.messages.length > SESSION_MESSAGE_CACHE_LIMIT
+          ? result.messages.slice(-SESSION_MESSAGE_CACHE_LIMIT)
+          : result.messages
+        sessionMessageCache.set(sessionId, trimmed)
+        setMessages(trimmed)
+        setHasInitialMessages(true)
+        return
+      }
+    } catch (error) {
+      console.error('加载缓存消息失败:', error)
+    }
+    setMessages([])
+    setHasInitialMessages(false)
+  }
+
   // 加载消息
   const loadMessages = async (sessionId: string, offset = 0) => {
     const listEl = messageListRef.current
@@ -647,7 +566,6 @@ function ChatPage(_props: ChatPageProps) {
     
     if (offset === 0) {
       setLoadingMessages(true)
-      setMessages([])
     } else {
       setLoadingMore(true)
     }
@@ -660,6 +578,7 @@ function ChatPage(_props: ChatPageProps) {
       if (result.success && result.messages) {
         if (offset === 0) {
           setMessages(result.messages)
+          cacheSessionMessages(sessionId, result.messages)
           // 首次加载滚动到底部
           requestAnimationFrame(() => {
             if (messageListRef.current) {
@@ -694,14 +613,18 @@ function ChatPage(_props: ChatPageProps) {
   // 选择会话
   const handleSelectSession = (session: ChatSession) => {
     if (session.username === currentSessionId) return
-    setCurrentSession(session.username)
+    const sessionId = session.username
+    setCurrentSession(sessionId)
     setCurrentOffset(0)
-    loadMessages(session.username, 0)
     // 重置详情面板
     setSessionDetail(null)
     if (showDetailPanel) {
-      loadSessionDetail(session.username)
+      loadSessionDetail(sessionId)
     }
+    void (async () => {
+      await loadCachedMessagesForSession(sessionId)
+      loadMessages(sessionId, 0)
+    })()
   }
 
   // 搜索过滤
@@ -845,7 +768,6 @@ function ChatPage(_props: ChatPageProps) {
     
     // 组件卸载时清理
     return () => {
-      avatarLoadQueue.clear()
       if (contactUpdateTimerRef.current) {
         clearTimeout(contactUpdateTimerRef.current)
       }

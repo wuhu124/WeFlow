@@ -15,6 +15,7 @@ import { groupAnalyticsService } from './services/groupAnalyticsService'
 import { annualReportService } from './services/annualReportService'
 import { exportService, ExportOptions } from './services/exportService'
 import { KeyService } from './services/keyService'
+import { cloneService } from './services/cloneService'
 
 // 配置自动更新
 autoUpdater.autoDownload = false
@@ -410,6 +411,10 @@ function registerIpcHandlers() {
     return chatService.getContactAvatar(username)
   })
 
+  ipcMain.handle('chat:getCachedMessages', async (_, sessionId: string) => {
+    return chatService.getCachedSessionMessages(sessionId)
+  })
+
   ipcMain.handle('chat:getMyAvatarUrl', async () => {
     return chatService.getMyAvatarUrl()
   })
@@ -437,6 +442,29 @@ function registerIpcHandlers() {
 
   ipcMain.handle('chat:getMessageById', async (_, sessionId: string, localId: number) => {
     return chatService.getMessageById(sessionId, localId)
+  })
+
+  // 私聊克隆
+  ipcMain.handle('clone:indexSession', async (_, sessionId: string, options?: any) => {
+    return await cloneService.indexSession(sessionId, options, (payload) => {
+      mainWindow?.webContents.send('clone:indexProgress', payload)
+    })
+  })
+
+  ipcMain.handle('clone:query', async (_, payload: { sessionId: string; keyword: string; options?: any }) => {
+    return await cloneService.queryMemory(payload.sessionId, payload.keyword, payload.options || {})
+  })
+
+  ipcMain.handle('clone:getToneGuide', async (_, sessionId: string) => {
+    return await cloneService.getToneGuide(sessionId)
+  })
+
+  ipcMain.handle('clone:generateToneGuide', async (_, sessionId: string, sampleSize?: number) => {
+    return await cloneService.generateToneGuide(sessionId, sampleSize || 500)
+  })
+
+  ipcMain.handle('clone:chat', async (_, payload: { sessionId: string; message: string; topK?: number }) => {
+    return await cloneService.chat(payload)
   })
 
   ipcMain.handle('image:decrypt', async (_, payload: { sessionId?: string; imageMd5?: string; imageDatName?: string; force?: boolean }) => {
@@ -675,9 +703,11 @@ function checkForUpdatesOnStartup() {
 
 app.whenReady().then(() => {
   configService = new ConfigService()
-  const resourcesPath = app.isPackaged
+  const candidateResources = app.isPackaged
     ? join(process.resourcesPath, 'resources')
     : join(app.getAppPath(), 'resources')
+  const fallbackResources = join(process.cwd(), 'resources')
+  const resourcesPath = existsSync(candidateResources) ? candidateResources : fallbackResources
   const userDataPath = app.getPath('userData')
   wcdbService.setPaths(resourcesPath, userDataPath)
   wcdbService.setLogEnabled(configService.get('logEnabled') === true)

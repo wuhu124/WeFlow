@@ -10,6 +10,21 @@ export default defineConfig({
     port: 3000,
     strictPort: false  // 如果3000被占用，自动尝试下一个
   },
+  build: {
+    commonjsOptions: {
+      ignoreDynamicRequires: true
+    }
+  },
+  optimizeDeps: {
+    exclude: [
+      '@lancedb/lancedb',
+      '@lancedb/lancedb-win32-x64-msvc',
+      'node-llama-cpp',
+      'onnxruntime-node',
+      '@xenova/transformers',
+      '@huggingface/transformers'
+    ]
+  },
   plugins: [
     react(),
     electron([
@@ -18,8 +33,18 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
-            rollupOptions: {
-              external: ['better-sqlite3', 'koffi']
+          rollupOptions: {
+              external: [
+                'better-sqlite3',
+                'koffi',
+                'node-llama-cpp',
+                '@lancedb/lancedb',
+                '@lancedb/lancedb-win32-x64-msvc',
+                'onnxruntime-node',
+                '@xenova/transformers',
+                '@huggingface/transformers',
+                'fsevents'
+              ]
             }
           }
         }
@@ -30,9 +55,42 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: ['koffi'],
+              external: [
+                'koffi',
+                'node-llama-cpp',
+                '@lancedb/lancedb',
+                '@lancedb/lancedb-win32-x64-msvc',
+                'onnxruntime-node',
+                '@xenova/transformers',
+                '@huggingface/transformers',
+                'fsevents'
+              ],
               output: {
                 entryFileNames: 'annualReportWorker.js',
+                inlineDynamicImports: true
+              }
+            }
+          }
+        }
+      },
+      {
+        entry: 'electron/cloneEmbeddingWorker.ts',
+        vite: {
+          build: {
+            outDir: 'dist-electron',
+            rollupOptions: {
+              external: [
+                'koffi',
+                'node-llama-cpp',
+                '@lancedb/lancedb',
+                '@lancedb/lancedb-win32-x64-msvc',
+                'onnxruntime-node',
+                '@xenova/transformers',
+                '@huggingface/transformers',
+                'fsevents'
+              ],
+              output: {
+                entryFileNames: 'cloneEmbeddingWorker.js',
                 inlineDynamicImports: true
               }
             }

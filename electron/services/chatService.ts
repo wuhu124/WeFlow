@@ -14,6 +14,8 @@ import { app } from 'electron'
 const execFileAsync = promisify(execFile)
 import { ConfigService } from './config'
 import { wcdbService } from './wcdbService'
+import { MessageCacheService } from './messageCacheService'
+import { ContactCacheService, ContactCacheEntry } from './contactCacheService'
 
 type HardlinkState = {
   db: Database.Database
@@ -74,13 +76,19 @@ class ChatService {
   private connected = false
   private messageCursors: Map<string, { cursor: number; fetched: number; batchSize: number }> = new Map()
   private readonly messageBatchDefault = 50
-  private avatarCache: Map<string, { avatarUrl?: string; displayName?: string; updatedAt: number }> = new Map()
+  private avatarCache: Map<string, ContactCacheEntry>
   private readonly avatarCacheTtlMs = 10 * 60 * 1000
   private readonly defaultV1AesKey = 'cfcd208495d565ef'
   private hardlinkCache = new Map<string, HardlinkState>()
+  private readonly contactCacheService: ContactCacheService
+  private readonly messageCacheService: MessageCacheService
 
   constructor() {
     this.configService = new ConfigService()
+    this.contactCacheService = new ContactCacheService(this.configService.get('cachePath'))
+    const persisted = this.contactCacheService.getAllEntries()
+    this.avatarCache = new Map(Object.entries(persisted))
+    this.messageCacheService = new MessageCacheService(this.configService.get('cachePath'))
   }
 
   /**
@@ -231,7 +239,7 @@ class ChatService {
         let displayName = username
         let avatarUrl: string | undefined = undefined
         const cached = this.avatarCache.get(username)
-        if (cached && now - cached.updatedAt < this.avatarCacheTtlMs) {
+        if (cached) {
           displayName = cached.displayName || username
           avatarUrl = cached.avatarUrl
         }
@@ -279,6 +287,7 @@ class ChatService {
       const now = Date.now()
       const missing: string[] = []
       const result: Record<string, { displayName?: string; avatarUrl?: string }> = {}
+      const updatedEntries: Record<string, ContactCacheEntry> = {}
 
       // 检查缓存
       for (const username of usernames) {
@@ -304,17 +313,20 @@ class ChatService {
           const displayName = displayNames.success && displayNames.map ? displayNames.map[username] : undefined
           const avatarUrl = avatarUrls.success && avatarUrls.map ? avatarUrls.map[username] : undefined
 
-          result[username] = { displayName, avatarUrl }
-
-          // 更新缓存
-          this.avatarCache.set(username, {
+          const cacheEntry: ContactCacheEntry = {
             displayName: displayName || username,
             avatarUrl,
             updatedAt: now
-          })
+          }
+          result[username] = { displayName, avatarUrl }
+          // 更新缓存并记录持久化
+          this.avatarCache.set(username, cacheEntry)
+          updatedEntries[username] = cacheEntry
+        }
+        if (Object.keys(updatedEntries).length > 0) {
+          this.contactCacheService.setEntries(updatedEntries)
         }
       }
-
       return { success: true, contacts: result }
     } catch (e) {
       console.error('ChatService: 补充联系人信息失败:', e)
@@ -456,10 +468,25 @@ class ChatService {
       }
 
       state.fetched += rows.length
+      this.messageCacheService.set(sessionId, normalized)
       return { success: true, messages: normalized, hasMore }
     } catch (e) {
       console.error('ChatService: 获取消息失败:', e)
       return { success: false, error: String(e) }
+    }
+  }
+
+  async getCachedSessionMessages(sessionId: string): Promise<{ success: boolean; messages?: Message[]; error?: string }> {
+    try {
+      if (!sessionId) return { success: true, messages: [] }
+      const entry = this.messageCacheService.get(sessionId)
+      if (!entry || !Array.isArray(entry.messages)) {
+        return { success: true, messages: [] }
+      }
+      return { success: true, messages: entry.messages.slice() }
+    } catch (error) {
+      console.error('ChatService: 获取缓存消息失败:', error)
+      return { success: false, error: String(error) }
     }
   }
 
@@ -1610,7 +1637,13 @@ class ChatService {
       const avatarResult = await wcdbService.getAvatarUrls([username])
       const avatarUrl = avatarResult.success && avatarResult.map ? avatarResult.map[username] : undefined
       const displayName = contact?.remark || contact?.nickName || contact?.alias || cached?.displayName || username
-      this.avatarCache.set(username, { avatarUrl, displayName, updatedAt: Date.now() })
+      const cacheEntry: ContactCacheEntry = {
+        avatarUrl,
+        displayName,
+        updatedAt: Date.now()
+      }
+      this.avatarCache.set(username, cacheEntry)
+      this.contactCacheService.setEntries({ [username]: cacheEntry })
       return { avatarUrl, displayName }
     } catch {
       return null

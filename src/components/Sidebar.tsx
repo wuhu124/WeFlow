@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { Home, MessageSquare, BarChart3, Users, FileText, Database, Settings, ChevronLeft, ChevronRight, Download } from 'lucide-react'
+import { Home, MessageSquare, BarChart3, Users, FileText, Database, Settings, ChevronLeft, ChevronRight, Download, Bot } from 'lucide-react'
 import './Sidebar.scss'
 
 function Sidebar() {
@@ -32,6 +32,16 @@ function Sidebar() {
         >
           <span className="nav-icon"><MessageSquare size={20} /></span>
           <span className="nav-label">聊天</span>
+        </NavLink>
+
+        {/* 好友克隆 */}
+        <NavLink
+          to="/clone"
+          className={`nav-item ${isActive('/clone') ? 'active' : ''}`}
+          title={collapsed ? '好友克隆' : undefined}
+        >
+          <span className="nav-icon"><Bot size={20} /></span>
+          <span className="nav-label">好友克隆</span>
         </NavLink>
 
         {/* 私聊分析 */}

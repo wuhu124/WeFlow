@@ -95,6 +95,24 @@ export interface ElectronAPI {
     getImageData: (sessionId: string, msgId: string) => Promise<{ success: boolean; data?: string; error?: string }>
     getVoiceData: (sessionId: string, msgId: string) => Promise<{ success: boolean; data?: string; error?: string }>
   }
+  clone: {
+    indexSession: (sessionId: string, options?: {
+      reset?: boolean
+      batchSize?: number
+      chunkGapSeconds?: number
+      maxChunkChars?: number
+      maxChunkMessages?: number
+    }) => Promise<{ success: boolean; totalMessages?: number; totalChunks?: number; debug?: any; error?: string }>
+    query: (payload: {
+      sessionId: string
+      keyword: string
+      options?: { topK?: number; roleFilter?: 'target' | 'me' }
+    }) => Promise<{ success: boolean; results?: any[]; debug?: any; error?: string }>
+    getToneGuide: (sessionId: string) => Promise<{ success: boolean; data?: any; error?: string }>
+    generateToneGuide: (sessionId: string, sampleSize?: number) => Promise<{ success: boolean; data?: any; error?: string }>
+    chat: (payload: { sessionId: string; message: string; topK?: number }) => Promise<{ success: boolean; response?: string; error?: string }>
+    onIndexProgress: (callback: (payload: { requestId: string; totalMessages: number; totalChunks: number; hasMore: boolean }) => void) => () => void
+  }
   image: {
     decrypt: (payload: { sessionId?: string; imageMd5?: string; imageDatName?: string; force?: boolean }) => Promise<{ success: boolean; localPath?: string; error?: string }>
     resolveCache: (payload: { sessionId?: string; imageMd5?: string; imageDatName?: string }) => Promise<{ success: boolean; localPath?: string; hasUpdate?: boolean; error?: string }>
