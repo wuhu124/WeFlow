@@ -695,33 +695,41 @@ export class KeyService {
   }
 
   private getXorKey(templateFiles: string[]): number | null {
-    const counts = new Map<string, number>()
+    const counts = new Map<number, number>()
+    const tailSignatures = [
+      Buffer.from([0xFF, 0xD9]),
+      Buffer.from([0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82])
+    ]
     for (const file of templateFiles) {
       try {
         const bytes = readFileSync(file)
-        if (bytes.length < 2) continue
-        const x = bytes[bytes.length - 2]
-        const y = bytes[bytes.length - 1]
-        const key = `${x}_${y}`
-        counts.set(key, (counts.get(key) ?? 0) + 1)
+        for (const signature of tailSignatures) {
+          if (bytes.length < signature.length) continue
+          const tail = bytes.subarray(bytes.length - signature.length)
+          const xorKey = tail[0] ^ signature[0]
+          let valid = true
+          for (let i = 1; i < signature.length; i++) {
+            if ((tail[i] ^ xorKey) !== signature[i]) {
+              valid = false
+              break
+            }
+          }
+          if (valid) {
+            counts.set(xorKey, (counts.get(xorKey) ?? 0) + 1)
+          }
+        }
       } catch { }
     }
     if (!counts.size) return null
-    let mostKey = ''
-    let mostCount = 0
+    let bestKey: number | null = null
+    let bestCount = 0
     for (const [key, count] of counts) {
-      if (count > mostCount) {
-        mostCount = count
-        mostKey = key
+      if (count > bestCount) {
+        bestCount = count
+        bestKey = key
       }
     }
-    if (!mostKey) return null
-    const [xStr, yStr] = mostKey.split('_')
-    const x = Number(xStr)
-    const y = Number(yStr)
-    const xorKey = x ^ 0xFF
-    const check = y ^ 0xD9
-    return xorKey === check ? xorKey : null
+    return bestKey
   }
 
   private getCiphertextFromTemplate(templateFiles: string[]): Buffer | null {
@@ -766,7 +774,17 @@ export class KeyService {
       const decipher = crypto.createDecipheriv('aes-128-ecb', key, null)
       decipher.setAutoPadding(false)
       const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()])
-      return decrypted[0] === 0xff && decrypted[1] === 0xd8 && decrypted[2] === 0xff
+      const isJpeg = decrypted.length >= 3 && decrypted[0] === 0xff && decrypted[1] === 0xd8 && decrypted[2] === 0xff
+      const isPng = decrypted.length >= 8 &&
+        decrypted[0] === 0x89 &&
+        decrypted[1] === 0x50 &&
+        decrypted[2] === 0x4e &&
+        decrypted[3] === 0x47 &&
+        decrypted[4] === 0x0d &&
+        decrypted[5] === 0x0a &&
+        decrypted[6] === 0x1a &&
+        decrypted[7] === 0x0a
+      return isJpeg || isPng
     } catch {
       return false
     }
