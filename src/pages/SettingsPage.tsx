@@ -664,6 +664,7 @@ function SettingsPage() {
       <div className="form-group">
         <label>数据库根目录</label>
         <span className="form-hint">xwechat_files 目录</span>
+        <span className="form-hint" style={{ color: '#ff6b6b' }}>⚠️ 目录路径不可包含中文，如有中文请去微信-设置-存储位置点击更改，迁移至全英文目录</span>
         <input type="text" placeholder="例如: C:\Users\xxx\Documents\xwechat_files" value={dbPath} onChange={(e) => setDbPath(e.target.value)} />
         <div className="btn-row">
           <button className="btn btn-primary" onClick={handleAutoDetectPath} disabled={isDetectingPath}>

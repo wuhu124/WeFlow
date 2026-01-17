@@ -442,6 +442,7 @@ function WelcomePage({ standalone = false }: WelcomePageProps) {
                 </button>
               </div>
               <div className="field-hint">建议选择包含 xwechat_files 的目录</div>
+              <div className="field-hint" style={{ color: '#ff6b6b', marginTop: '4px' }}>⚠️ 目录路径不可包含中文，如有中文请去微信-设置-存储位置点击更改，迁移至全英文目录</div>
             </div>
           )}
 
