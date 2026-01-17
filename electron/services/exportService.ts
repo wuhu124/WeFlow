@@ -1,4 +1,4 @@
-import * as fs from 'fs'
+﻿import * as fs from 'fs'
 import * as path from 'path'
 import * as http from 'http'
 import * as https from 'https'
@@ -364,7 +364,6 @@ class ExportService {
 
       return `[${callType}]`
     } catch (e) {
-      console.error('[ExportService] Failed to parse VOIP message:', e)
       return '[通话]'
     }
   }
@@ -417,8 +416,7 @@ class ExportService {
     if (localType === 3 && options.exportImages) {
       const result = await this.exportImage(msg, sessionId, mediaDir)
       if (result) {
-        console.log('[ExportService] 图片导出成功:', result.relativePath)
-      }
+        }
       return result
     }
 
@@ -438,8 +436,7 @@ class ExportService {
     if (localType === 47 && options.exportEmojis) {
       const result = await this.exportEmoji(msg, sessionId, mediaDir)
       if (result) {
-        console.log('[ExportService] 表情导出成功:', result.relativePath)
-      }
+        }
       return result
     }
 
@@ -461,11 +458,8 @@ class ExportService {
       const imageDatName = msg.imageDatName
 
       if (!imageMd5 && !imageDatName) {
-        console.log('[ExportService] 图片消息缺少 md5 和 datName:', msg.localId)
         return null
       }
-
-      console.log('[ExportService] 导出图片:', { localId: msg.localId, imageMd5, imageDatName, sessionId })
 
       const result = await imageDecryptService.decryptImage({
         sessionId,
@@ -524,7 +518,6 @@ class ExportService {
 
       return null
     } catch (e) {
-      console.error('[ExportService] 导出图片失败:', e)
       return null
     }
   }
@@ -545,19 +538,15 @@ class ExportService {
 
       // 如果已存在则跳过
       if (fs.existsSync(destPath)) {
-        console.log('[ExportService] 语音已存在:', destPath)
         return {
           relativePath: `media/voices/${fileName}`,
           kind: 'voice'
         }
       }
 
-      console.log('[ExportService] 导出语音:', { localId: msg.localId, sessionId })
-
       // 调用 chatService 获取语音数据
       const voiceResult = await chatService.getVoiceData(sessionId, msgId)
       if (!voiceResult.success || !voiceResult.data) {
-        console.log('[ExportService] 获取语音数据失败:', voiceResult.error)
         return null
       }
 
@@ -565,13 +554,11 @@ class ExportService {
       const wavBuffer = Buffer.from(voiceResult.data, 'base64')
       fs.writeFileSync(destPath, wavBuffer)
 
-      console.log('[ExportService] 语音导出成功:', destPath)
       return {
         relativePath: `media/voices/${fileName}`,
         kind: 'voice'
       }
     } catch (e) {
-      console.error('[ExportService] 导出语音失败:', e)
       return null
     }
   }
@@ -587,7 +574,6 @@ class ExportService {
       }
       return '[语音消息 - 转文字失败]'
     } catch (e) {
-      console.error('[ExportService] 语音转文字失败:', e)
       return '[语音消息 - 转文字失败]'
     }
   }
@@ -625,7 +611,6 @@ class ExportService {
 
       // 如果已存在则跳过
       if (fs.existsSync(destPath)) {
-        console.log('[ExportService] 表情已存在:', destPath)
         return {
           relativePath: `media/emojis/${fileName}`,
           kind: 'emoji'
@@ -634,22 +619,18 @@ class ExportService {
 
       // 下载表情
       if (emojiUrl) {
-        console.log('[ExportService] 开始下载表情:', emojiUrl)
         const downloaded = await this.downloadFile(emojiUrl, destPath)
         if (downloaded) {
-          console.log('[ExportService] 表情下载成功:', destPath)
           return {
             relativePath: `media/emojis/${fileName}`,
             kind: 'emoji'
           }
         } else {
-          console.log('[ExportService] 表情下载失败:', emojiUrl)
-        }
+          }
       }
 
       return null
     } catch (e) {
-      console.error('[ExportService] 导出表情失败:', e)
       return null
     }
   }
@@ -823,13 +804,11 @@ class ExportService {
             // 图片消息
             imageMd5 = this.extractImageMd5(content)
             imageDatName = this.extractImageDatName(content)
-            console.log('[ExportService] 提取图片字段:', { localId, imageMd5, imageDatName })
-          } else if (localType === 47 && content) {
+            } else if (localType === 47 && content) {
             // 动画表情
             emojiCdnUrl = this.extractEmojiUrl(content)
             emojiMd5 = this.extractEmojiMd5(content)
-            console.log('[ExportService] 提取表情字段:', { localId, emojiMd5, emojiCdnUrl: emojiCdnUrl?.substring(0, 100) })
-          }
+            }
 
           rows.push({
             localId,
@@ -1233,7 +1212,6 @@ class ExportService {
 
       return { success: true }
     } catch (e) {
-      console.error('ExportService: 导出失败:', e)
       return { success: false, error: String(e) }
     }
   }
@@ -1348,7 +1326,6 @@ class ExportService {
 
       return { success: true }
     } catch (e) {
-      console.error('ExportService: 导出失败:', e)
       return { success: false, error: String(e) }
     }
   }
@@ -1570,14 +1547,7 @@ class ExportService {
 
         // 调试日志
         if (msg.localType === 3 || msg.localType === 47) {
-          console.log('[ExportService] 媒体消息填充表格:', {
-            localId: msg.localId,
-            localType: msg.localType,
-            hasMediaItem: !!mediaItem,
-            mediaRelativePath: mediaItem?.relativePath,
-            contentValue: contentValue?.substring(0, 100)
-          })
-        }
+          }
 
         worksheet.getCell(currentRow, 1).value = i + 1
         worksheet.getCell(currentRow, 2).value = this.formatTimestamp(msg.createTime)
@@ -1628,8 +1598,6 @@ class ExportService {
 
       return { success: true }
     } catch (e) {
-      console.error('ExportService: 导出 Excel 失败:', e)
-
       // 处理文件被占用的错误
       if (e instanceof Error) {
         if (e.message.includes('EBUSY') || e.message.includes('resource busy') || e.message.includes('locked')) {
@@ -1721,3 +1689,4 @@ class ExportService {
 }
 
 export const exportService = new ExportService()
+

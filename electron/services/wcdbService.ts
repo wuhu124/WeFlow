@@ -58,11 +58,13 @@ export class WcdbService {
       })
 
       this.worker.on('error', (err) => {
-        console.error('WCDB Worker 错误:', err)
+        // Worker error
       })
 
       this.worker.on('exit', (code) => {
-        if (code !== 0) console.error(`WCDB Worker 异常退出，退出码: ${code}`)
+        if (code !== 0) {
+          // Worker exited with error
+        }
         this.worker = null
       })
 
@@ -73,7 +75,7 @@ export class WcdbService {
       this.setLogEnabled(this.logEnabled)
 
     } catch (e) {
-      console.error('创建 WCDB Worker 失败:', e)
+      // Failed to create worker
     }
   }
 
@@ -97,7 +99,7 @@ export class WcdbService {
   setPaths(resourcesPath: string, userDataPath: string): void {
     this.resourcesPath = resourcesPath
     this.userDataPath = userDataPath
-    this.callWorker('setPaths', { resourcesPath, userDataPath }).catch(console.error)
+    this.callWorker('setPaths', { resourcesPath, userDataPath }).catch(() => {})
   }
 
   /**
@@ -105,7 +107,7 @@ export class WcdbService {
    */
   setLogEnabled(enabled: boolean): void {
     this.logEnabled = enabled
-    this.callWorker('setLogEnabled', { enabled }).catch(console.error)
+    this.callWorker('setLogEnabled', { enabled }).catch(() => {})
   }
 
   /**

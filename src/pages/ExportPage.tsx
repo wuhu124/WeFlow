@@ -160,7 +160,7 @@ function ExportPage() {
         exportImages: options.exportMedia && options.exportImages,
         exportVoices: options.exportMedia && options.exportVoices,
         exportEmojis: options.exportMedia && options.exportEmojis,
-        exportVoiceAsText: options.exportMedia && options.exportVoiceAsText,
+        exportVoiceAsText: options.exportVoiceAsText,  // 独立于 exportMedia
         dateRange: options.useAllTime ? null : options.dateRange ? {
           start: Math.floor(options.dateRange.start.getTime() / 1000),
           // 将结束日期设置为当天的 23:59:59,以包含当天的所有消息
@@ -444,15 +444,14 @@ function ExportPage() {
 
               <div className="media-option-divider"></div>
 
-              <label className={`media-checkbox-row ${!options.exportMedia ? 'disabled' : ''}`}>
+              <label className="media-checkbox-row">
                 <div className="media-checkbox-info">
                   <span className="media-checkbox-title">语音转文字</span>
-                  <span className="media-checkbox-desc">将语音消息转换为文字导出</span>
+                  <span className="media-checkbox-desc">将语音消息转换为文字导出（不导出语音文件）</span>
                 </div>
                 <input
                   type="checkbox"
                   checked={options.exportVoiceAsText}
-                  disabled={!options.exportMedia}
                   onChange={e => setOptions({ ...options, exportVoiceAsText: e.target.checked })}
                 />
               </label>

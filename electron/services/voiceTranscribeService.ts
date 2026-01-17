@@ -1,4 +1,4 @@
-import { app } from 'electron'
+﻿import { app } from 'electron'
 import { existsSync, mkdirSync, statSync, unlinkSync, createWriteStream } from 'fs'
 import { join } from 'path'
 import * as https from 'https'
@@ -98,7 +98,6 @@ export class VoiceTranscribeService {
         sizeBytes: totalSize
       }
     } catch (error) {
-      console.error('[VoiceTranscribe] getModelStatus error:', error)
       return { success: false, error: String(error) }
     }
   }
@@ -125,7 +124,6 @@ export class VoiceTranscribeService {
         const vadPath = this.resolveModelPath((SENSEVOICE_MODEL.files as any).vad)
 
         // 下载模型文件 (40%)
-        console.info('[VoiceTranscribe] 开始下载模型文件...')
         await this.downloadToFile(
           MODEL_DOWNLOAD_URLS.model,
           modelPath,
@@ -142,7 +140,6 @@ export class VoiceTranscribeService {
         )
 
         // 下载 tokens 文件 (30%)
-        console.info('[VoiceTranscribe] 开始下载 tokens 文件...')
         await this.downloadToFile(
           MODEL_DOWNLOAD_URLS.tokens,
           tokensPath,
@@ -160,7 +157,6 @@ export class VoiceTranscribeService {
         )
 
         // 下载 vad 文件 (30%)
-        console.info('[VoiceTranscribe] 开始下载 VAD 文件...')
         await this.downloadToFile(
           (MODEL_DOWNLOAD_URLS as any).vad,
           vadPath,
@@ -178,10 +174,8 @@ export class VoiceTranscribeService {
           }
         )
 
-        console.info('[VoiceTranscribe] 模型下载完成')
         return { success: true, modelPath, tokensPath }
       } catch (error) {
-        console.error('[VoiceTranscribe] 下载失败:', error)
         const modelPath = this.resolveModelPath(SENSEVOICE_MODEL.files.model)
         const tokensPath = this.resolveModelPath(SENSEVOICE_MODEL.files.tokens)
         const vadPath = this.resolveModelPath((SENSEVOICE_MODEL.files as any).vad)
@@ -221,8 +215,6 @@ export class VoiceTranscribeService {
         // main.js 和 transcribeWorker.js 同在 dist-electron 目录下
         const workerPath = join(__dirname, 'transcribeWorker.js')
 
-        console.info('[VoiceTranscribe] 启动后台 Worker 转写...', { workerPath })
-
         const worker = new Worker(workerPath, {
           workerData: {
             modelPath,
@@ -248,7 +240,6 @@ export class VoiceTranscribeService {
         })
 
         worker.on('error', (err: Error) => {
-          console.error('[VoiceTranscribe] Worker error:', err)
           resolve({ success: false, error: String(err) })
         })
 
@@ -260,7 +251,6 @@ export class VoiceTranscribeService {
         })
 
       } catch (error) {
-        console.error('[VoiceTranscribe] 启动 Worker 失败:', error)
         resolve({ success: false, error: String(error) })
       }
     })
@@ -350,10 +340,10 @@ export class VoiceTranscribeService {
         // sherpa-onnx 的 recognizer 可能需要手动释放
         this.recognizer = null
       } catch (error) {
-        console.error('[VoiceTranscribe] 释放识别器失败:', error)
-      }
+        }
     }
   }
 }
 
 export const voiceTranscribeService = new VoiceTranscribeService()
+

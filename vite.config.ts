@@ -32,7 +32,8 @@ export default defineConfig({
                 'koffi',
                 'fsevents',
                 'whisper-node',
-                'shelljs'
+                'shelljs',
+                'exceljs'
               ]
             }
           }
