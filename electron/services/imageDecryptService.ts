@@ -68,14 +68,7 @@ export class ImageDecryptService {
     const metaStr = meta ? ` ${JSON.stringify(meta)}` : ''
     const logLine = `[${timestamp}] [ImageDecrypt] ${message}${metaStr}\n`
 
-    // 同时输出到控制台
-    if (meta) {
-      console.info(message, meta)
-    } else {
-      console.info(message)
-    }
-
-    // 写入日志文件
+    // 只写入文件，不输出到控制台
     this.writeLog(logLine)
   }
 

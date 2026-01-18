@@ -9,6 +9,8 @@ export interface ElectronAPI {
     completeOnboarding: () => Promise<boolean>
     openOnboardingWindow: () => Promise<boolean>
     setTitleBarOverlay: (options: { symbolColor: string }) => void
+    openVideoPlayerWindow: (videoPath: string, videoWidth?: number, videoHeight?: number) => Promise<void>
+    resizeToFitVideo: (videoWidth: number, videoHeight: number) => Promise<void>
   }
   config: {
     get: (key: string) => Promise<unknown>
@@ -96,7 +98,7 @@ export interface ElectronAPI {
     getImageData: (sessionId: string, msgId: string) => Promise<{ success: boolean; data?: string; error?: string }>
     getVoiceData: (sessionId: string, msgId: string, createTime?: number, serverId?: string | number) => Promise<{ success: boolean; data?: string; error?: string }>
     resolveVoiceCache: (sessionId: string, msgId: string) => Promise<{ success: boolean; hasCache: boolean; data?: string }>
-    getVoiceTranscript: (sessionId: string, msgId: string) => Promise<{ success: boolean; transcript?: string; error?: string }>
+    getVoiceTranscript: (sessionId: string, msgId: string, createTime?: number) => Promise<{ success: boolean; transcript?: string; error?: string }>
     onVoiceTranscriptPartial: (callback: (payload: { msgId: string; text: string }) => void) => () => void
   }
 
@@ -106,6 +108,21 @@ export interface ElectronAPI {
     preload: (payloads: Array<{ sessionId?: string; imageMd5?: string; imageDatName?: string }>) => Promise<boolean>
     onUpdateAvailable: (callback: (payload: { cacheKey: string; imageMd5?: string; imageDatName?: string }) => void) => () => void
     onCacheResolved: (callback: (payload: { cacheKey: string; imageMd5?: string; imageDatName?: string; localPath: string }) => void) => () => void
+  }
+  video: {
+    getVideoInfo: (videoMd5: string) => Promise<{
+      success: boolean
+      exists: boolean
+      videoUrl?: string
+      coverUrl?: string
+      thumbUrl?: string
+      error?: string
+    }>
+    parseVideoMd5: (content: string) => Promise<{
+      success: boolean
+      md5?: string
+      error?: string
+    }>
   }
   analytics: {
     getOverallStatistics: (force?: boolean) => Promise<{

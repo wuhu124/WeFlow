@@ -15,6 +15,7 @@ import GroupAnalyticsPage from './pages/GroupAnalyticsPage'
 import DataManagementPage from './pages/DataManagementPage'
 import SettingsPage from './pages/SettingsPage'
 import ExportPage from './pages/ExportPage'
+import VideoWindow from './pages/VideoWindow'
 
 import { useAppStore } from './stores/appStore'
 import { themes, useThemeStore, type ThemeId } from './stores/themeStore'
@@ -29,6 +30,7 @@ function App() {
   const { currentTheme, themeMode, setTheme, setThemeMode } = useThemeStore()
   const isAgreementWindow = location.pathname === '/agreement-window'
   const isOnboardingWindow = location.pathname === '/onboarding-window'
+  const isVideoPlayerWindow = location.pathname === '/video-player-window'
   const [themeHydrated, setThemeHydrated] = useState(false)
 
   // 协议同意状态
@@ -217,6 +219,11 @@ function App() {
 
   if (isOnboardingWindow) {
     return <WelcomePage standalone />
+  }
+
+  // 独立视频播放窗口
+  if (isVideoPlayerWindow) {
+    return <VideoWindow />
   }
 
   // 主窗口 - 完整布局

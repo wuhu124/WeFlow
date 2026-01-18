@@ -42,6 +42,7 @@ export interface Message {
   senderUsername: string | null
   parsedContent: string
   rawContent: string
+  content?: string  // 原始XML内容（与rawContent相同，供前端使用）
   // 表情包相关
   emojiCdnUrl?: string
   emojiMd5?: string
@@ -52,6 +53,7 @@ export interface Message {
   // 图片/视频相关
   imageMd5?: string
   imageDatName?: string
+  videoMd5?: string
   aesKey?: string
   encrypVer?: number
   cdnThumbUrl?: string
@@ -83,7 +85,18 @@ class ChatService {
   private voiceWavCache = new Map<string, Buffer>()
   private voiceTranscriptCache = new Map<string, string>()
   private voiceTranscriptPending = new Map<string, Promise<{ success: boolean; transcript?: string; error?: string }>>()
+  private mediaDbsCache: string[] | null = null
+  private mediaDbsCacheTime = 0
+  private readonly mediaDbsCacheTtl = 300000 // 5分钟
   private readonly voiceCacheMaxEntries = 50
+  // 缓存 media.db 的表结构信息
+  private mediaDbSchemaCache = new Map<string, {
+    voiceTable: string
+    dataColumn: string
+    chatNameIdColumn?: string
+    timeColumn?: string
+    name2IdTable?: string
+  }>()
 
   constructor() {
     this.configService = new ConfigService()
@@ -140,10 +153,29 @@ class ChatService {
       }
 
       this.connected = true
+
+      // 预热 listMediaDbs 缓存（后台异步执行，不阻塞连接）
+      this.warmupMediaDbsCache()
+
       return { success: true }
     } catch (e) {
       console.error('ChatService: 连接数据库失败:', e)
       return { success: false, error: String(e) }
+    }
+  }
+
+  /**
+   * 预热 media 数据库列表缓存（后台异步执行）
+   */
+  private async warmupMediaDbsCache(): Promise<void> {
+    try {
+      const result = await wcdbService.listMediaDbs()
+      if (result.success && result.data) {
+        this.mediaDbsCache = result.data as string[]
+        this.mediaDbsCacheTime = Date.now()
+      }
+    } catch (e) {
+      // 静默失败，不影响主流程
     }
   }
 
@@ -382,8 +414,6 @@ class ChatService {
       const needNewCursor = !state || offset === 0 || state.batchSize !== batchSize
 
       if (needNewCursor) {
-        console.log(`[ChatService] 创建新游标: sessionId=${sessionId}, offset=${offset}, batchSize=${batchSize}`)
-
         // 关闭旧游标
         if (state) {
           try {
@@ -440,7 +470,6 @@ class ChatService {
       }
 
       // 获取当前批次的消息
-      console.log(`[ChatService] 获取消息批次: cursor=${state.cursor}, fetched=${state.fetched}`)
       const batch = await wcdbService.fetchMessageBatch(state.cursor)
       if (!batch.success) {
         console.error('[ChatService] 获取消息批次失败:', batch.error)
@@ -716,6 +745,7 @@ class ChatService {
       let quotedSender: string | undefined
       let imageMd5: string | undefined
       let imageDatName: string | undefined
+      let videoMd5: string | undefined
       let aesKey: string | undefined
       let encrypVer: number | undefined
       let cdnThumbUrl: string | undefined
@@ -732,6 +762,9 @@ class ChatService {
         encrypVer = imageInfo.encrypVer
         cdnThumbUrl = imageInfo.cdnThumbUrl
         imageDatName = this.parseImageDatNameFromRow(row)
+      } else if (localType === 43 && content) {
+        // 视频消息
+        videoMd5 = this.parseVideoMd5(content)
       } else if (localType === 34 && content) {
         voiceDurationSeconds = this.parseVoiceDurationSeconds(content)
       } else if (localType === 244813135921 || (content && content.includes('<type>57</type>'))) {
@@ -756,6 +789,7 @@ class ChatService {
         quotedSender,
         imageMd5,
         imageDatName,
+        videoMd5,
         voiceDurationSeconds,
         aesKey,
         encrypVer,
@@ -934,6 +968,26 @@ class ChatService {
       }
     } catch {
       return {}
+    }
+  }
+
+  /**
+   * 解析视频MD5
+   * 注意：提取 md5 字段用于查询 hardlink.db，获取实际视频文件名
+   */
+  private parseVideoMd5(content: string): string | undefined {
+    if (!content) return undefined
+
+    try {
+      // 提取 md5，这是用于查询 hardlink.db 的值
+      const md5 =
+        this.extractXmlAttribute(content, 'videomsg', 'md5') ||
+        this.extractXmlValue(content, 'md5') ||
+        undefined
+
+      return md5?.toLowerCase()
+    } catch {
+      return undefined
     }
   }
 
@@ -1419,21 +1473,22 @@ class ChatService {
   }
 
   private extractXmlAttribute(xml: string, tagName: string, attrName: string): string {
-    const tagRegex = new RegExp(`<${tagName}[^>]*>`, 'i')
-    const tagMatch = tagRegex.exec(xml)
-    if (!tagMatch) return ''
-
-    const attrRegex = new RegExp(`${attrName}\\s*=\\s*['"]([^'"]*)['"]`, 'i')
-    const attrMatch = attrRegex.exec(tagMatch[0])
-    return attrMatch ? attrMatch[1] : ''
+    // 匹配 <tagName ... attrName="value" ... /> 或 <tagName ... attrName="value" ...>
+    const regex = new RegExp(`<${tagName}[^>]*\\s${attrName}\\s*=\\s*['"]([^'"]*)['"']`, 'i')
+    const match = regex.exec(xml)
+    return match ? match[1] : ''
   }
 
   private cleanSystemMessage(content: string): string {
-    return content
-      .replace(/<img[^>]*>/gi, '')
-      .replace(/<\/?[a-zA-Z0-9_]+[^>]*>/g, '')
-      .replace(/\s+/g, ' ')
-      .trim() || '[系统消息]'
+    // 移除 XML 声明
+    let cleaned = content.replace(/<\?xml[^?]*\?>/gi, '')
+    // 移除所有 XML/HTML 标签
+    cleaned = cleaned.replace(/<[^>]+>/g, '')
+    // 移除尾部的数字（如撤回消息后的时间戳）
+    cleaned = cleaned.replace(/\d+\s*$/, '')
+    // 清理多余空白
+    cleaned = cleaned.replace(/\s+/g, ' ').trim()
+    return cleaned || '[系统消息]'
   }
 
   private stripSenderPrefix(content: string): string {
@@ -1691,21 +1746,17 @@ class ChatService {
       // 增加 'self' 作为兜底标识符，微信有时将个人信息存储在 'self' 记录中
       const fetchList = Array.from(new Set([myWxid, cleanedWxid, 'self']))
 
-      console.log(`[ChatService] 尝试获取个人头像, wxids: ${JSON.stringify(fetchList)}`)
       const result = await wcdbService.getAvatarUrls(fetchList)
 
       if (result.success && result.map) {
         // 按优先级尝试匹配
         const avatarUrl = result.map[myWxid] || result.map[cleanedWxid] || result.map['self']
         if (avatarUrl) {
-          console.log(`[ChatService] 成功获取个人头像: ${avatarUrl.substring(0, 50)}...`)
           return { success: true, avatarUrl }
         }
-        console.warn(`[ChatService] 未能在 contact.db 中找到个人头像, 请求列表: ${JSON.stringify(fetchList)}`)
         return { success: true, avatarUrl: undefined }
       }
 
-      console.error(`[ChatService] 查询个人头像失败: ${result.error || '未知错误'}`)
       return { success: true, avatarUrl: undefined }
     } catch (e) {
       console.error('ChatService: 获取当前用户头像失败:', e)
@@ -1716,6 +1767,19 @@ class ChatService {
   /**
    * 获取表情包缓存目录
    */
+  /**
+   * 获取语音缓存目录
+   */
+  private getVoiceCacheDir(): string {
+    const cachePath = this.configService.get('cachePath')
+    if (cachePath) {
+      return join(cachePath, 'Voices')
+    }
+    // 回退到默认目录
+    const documentsPath = app.getPath('documents')
+    return join(documentsPath, 'WeFlow', 'Voices')
+  }
+
   private getEmojiCacheDir(): string {
     const cachePath = this.configService.get('cachePath')
     if (cachePath) {
@@ -2085,12 +2149,6 @@ class ChatService {
         return { success: false, error: '未找到消息' }
       }
       const msg = msgResult.message
-      console.info('[ChatService][Image] request', {
-        sessionId,
-        localId: msg.localId,
-        imageMd5: msg.imageMd5,
-        imageDatName: msg.imageDatName
-      })
 
       // 2. 确定搜索的基础名
       const baseName = msg.imageMd5 || msg.imageDatName || String(msg.localId)
@@ -2107,7 +2165,6 @@ class ChatService {
 
       const datPath = await this.findDatFile(actualAccountDir, baseName, sessionId)
       if (!datPath) return { success: false, error: '未找到图片源文件 (.dat)' }
-      console.info('[ChatService][Image] dat path', datPath)
 
       // 4. 获取解密密钥
       const xorKeyRaw = this.configService.get('imageXorKey')
@@ -2135,7 +2192,6 @@ class ChatService {
         const aesKey = this.asciiKey16(trimmed)
         decrypted = this.decryptDatV4(data, xorKey, aesKey)
       }
-      console.info('[ChatService][Image] decrypted bytes', decrypted.length)
 
       // 返回 base64
       return { success: true, data: decrypted.toString('base64') }
@@ -2146,44 +2202,30 @@ class ChatService {
   }
 
   /**
-   * getVoiceData (优化的 C++ 实现 + 文件缓存)
+   * getVoiceData (绕过WCDB的buggy getVoiceData，直接用execQuery读取)
    */
   async getVoiceData(sessionId: string, msgId: string, createTime?: number, serverId?: string | number): Promise<{ success: boolean; data?: string; error?: string }> {
-
+    const startTime = Date.now()
     try {
       const localId = parseInt(msgId, 10)
       if (isNaN(localId)) {
         return { success: false, error: '无效的消息ID' }
       }
 
-      // 检查文件缓存
-      const cacheKey = this.getVoiceCacheKey(sessionId, msgId)
-      const cachedFile = this.getVoiceCacheFilePath(cacheKey)
-      if (existsSync(cachedFile)) {
-        try {
-          const wavData = readFileSync(cachedFile)
-          console.info('[ChatService][Voice] 使用缓存文件:', cachedFile)
-          return { success: true, data: wavData.toString('base64') }
-        } catch (e) {
-          console.error('[ChatService][Voice] 读取缓存失败:', e)
-          // 继续重新解密
-        }
-      }
-
-      // 1. 确定 createTime 和 svrId
       let msgCreateTime = createTime
-      let msgSvrId: string | number = serverId || 0
+      let senderWxid: string | null = null
 
-      // 如果提供了传来的参数，验证其有效性
-      if (!msgCreateTime || msgCreateTime === 0) {
+      // 如果前端没传 createTime，才需要查询消息（这个很慢）
+      if (!msgCreateTime) {
+        const t1 = Date.now()
         const msgResult = await this.getMessageByLocalId(sessionId, localId)
+        const t2 = Date.now()
+        console.log(`[Voice] getMessageByLocalId: ${t2 - t1}ms`)
+
         if (msgResult.success && msgResult.message) {
           const msg = msgResult.message as any
-          msgCreateTime = msg.createTime || msg.create_time
-          // 尝试获取各种可能的 server id 列名 (只有在没有传入 serverId 时才查找)
-          if (!msgSvrId || msgSvrId === 0) {
-            msgSvrId = msg.serverId || msg.svr_id || msg.msg_svr_id || msg.message_id || 0
-          }
+          msgCreateTime = msg.createTime
+          senderWxid = msg.senderUsername || null
         }
       }
 
@@ -2191,54 +2233,84 @@ class ChatService {
         return { success: false, error: '未找到消息时间戳' }
       }
 
-      // 2. 构建查找候选 (sessionId, myWxid)
+      // 使用 sessionId + createTime 作为缓存key
+      const cacheKey = `${sessionId}_${msgCreateTime}`
+
+      // 检查 WAV 内存缓存
+      const wavCache = this.voiceWavCache.get(cacheKey)
+      if (wavCache) {
+        console.log(`[Voice] 内存缓存命中，总耗时: ${Date.now() - startTime}ms`)
+        return { success: true, data: wavCache.toString('base64') }
+      }
+
+      // 检查 WAV 文件缓存
+      const voiceCacheDir = this.getVoiceCacheDir()
+      const wavFilePath = join(voiceCacheDir, `${cacheKey}.wav`)
+      if (existsSync(wavFilePath)) {
+        try {
+          const wavData = readFileSync(wavFilePath)
+          // 同时缓存到内存
+          this.cacheVoiceWav(cacheKey, wavData)
+          console.log(`[Voice] 文件缓存命中，总耗时: ${Date.now() - startTime}ms`)
+          return { success: true, data: wavData.toString('base64') }
+        } catch (e) {
+          console.error('[Voice] 读取缓存文件失败:', e)
+        }
+      }
+
+      // 构建查找候选
       const candidates: string[] = []
-      if (sessionId) candidates.push(sessionId)
       const myWxid = this.configService.get('myWxid') as string
+
+      // 如果有 senderWxid，优先使用（群聊中最重要）
+      if (senderWxid) {
+        candidates.push(senderWxid)
+      }
+
+      // sessionId（1对1聊天时是对方wxid，群聊时是群id）
+      if (sessionId && !candidates.includes(sessionId)) {
+        candidates.push(sessionId)
+      }
+
+      // 我的wxid（兜底）
       if (myWxid && !candidates.includes(myWxid)) {
         candidates.push(myWxid)
       }
 
+      const t3 = Date.now()
+      // 从数据库读取 silk 数据
+      const silkData = await this.getVoiceDataFromMediaDb(msgCreateTime, candidates)
+      const t4 = Date.now()
+      console.log(`[Voice] getVoiceDataFromMediaDb: ${t4 - t3}ms`)
 
-
-      // 3. 调用 C++ 接口获取语音 (Hex)
-      const voiceRes = await wcdbService.getVoiceData(sessionId, msgCreateTime, candidates, localId, msgSvrId)
-      if (!voiceRes.success || !voiceRes.hex) {
-        return { success: false, error: voiceRes.error || '未找到语音数据' }
+      if (!silkData) {
+        return { success: false, error: '未找到语音数据' }
       }
 
+      const t5 = Date.now()
+      // 使用 silk-wasm 解码
+      const pcmData = await this.decodeSilkToPcm(silkData, 24000)
+      const t6 = Date.now()
+      console.log(`[Voice] decodeSilkToPcm: ${t6 - t5}ms`)
 
-
-      // 4. Hex 转 Buffer (Silk)
-      const silkData = Buffer.from(voiceRes.hex, 'hex')
-
-      // 5. 使用 silk-wasm 解码
-      try {
-        const pcmData = await this.decodeSilkToPcm(silkData, 24000)
-        if (!pcmData) {
-          return { success: false, error: 'Silk 解码失败' }
-        }
-
-        // PCM -> WAV
-        const wavData = this.createWavBuffer(pcmData, 24000)
-
-        // 保存到文件缓存
-        try {
-          this.saveVoiceCache(cacheKey, wavData)
-          console.info('[ChatService][Voice] 已保存缓存:', cachedFile)
-        } catch (e) {
-          console.error('[ChatService][Voice] 保存缓存失败:', e)
-          // 不影响返回
-        }
-
-        // 缓存 WAV 数据 (内存缓存)
-        this.cacheVoiceWav(cacheKey, wavData)
-
-        return { success: true, data: wavData.toString('base64') }
-      } catch (e) {
-        console.error('[ChatService][Voice] decoding error:', e)
-        return { success: false, error: '语音解码失败: ' + String(e) }
+      if (!pcmData) {
+        return { success: false, error: 'Silk 解码失败' }
       }
+
+      const t7 = Date.now()
+      // PCM -> WAV
+      const wavData = this.createWavBuffer(pcmData, 24000)
+      const t8 = Date.now()
+      console.log(`[Voice] createWavBuffer: ${t8 - t7}ms`)
+
+      // 缓存 WAV 数据到内存
+      this.cacheVoiceWav(cacheKey, wavData)
+
+      // 缓存 WAV 数据到文件（异步，不阻塞返回）
+      this.cacheVoiceWavToFile(cacheKey, wavData)
+
+      console.log(`[Voice] 总耗时: ${Date.now() - startTime}ms`)
+      return { success: true, data: wavData.toString('base64') }
     } catch (e) {
       console.error('ChatService: getVoiceData 失败:', e)
       return { success: false, error: String(e) }
@@ -2246,24 +2318,226 @@ class ChatService {
   }
 
   /**
-   * 检查语音是否已有缓存
+   * 缓存 WAV 数据到文件（异步）
+   */
+  private async cacheVoiceWavToFile(cacheKey: string, wavData: Buffer): Promise<void> {
+    try {
+      const voiceCacheDir = this.getVoiceCacheDir()
+      if (!existsSync(voiceCacheDir)) {
+        mkdirSync(voiceCacheDir, { recursive: true })
+      }
+
+      const wavFilePath = join(voiceCacheDir, `${cacheKey}.wav`)
+      writeFileSync(wavFilePath, wavData)
+    } catch (e) {
+      console.error('[Voice] 缓存文件失败:', e)
+    }
+  }
+
+  /**
+   * 通过 WCDB 的 execQuery 直接查询 media.db（绕过有bug的getVoiceData接口）
+   * 策略：批量查询 + 多种兜底方案
+   */
+  private async getVoiceDataFromMediaDb(createTime: number, candidates: string[]): Promise<Buffer | null> {
+    const startTime = Date.now()
+    try {
+      const t1 = Date.now()
+      // 获取所有 media 数据库（永久缓存，直到应用重启）
+      let mediaDbFiles: string[]
+      if (this.mediaDbsCache) {
+        mediaDbFiles = this.mediaDbsCache
+        console.log(`[Voice] listMediaDbs (缓存): 0ms`)
+      } else {
+        const mediaDbsResult = await wcdbService.listMediaDbs()
+        const t2 = Date.now()
+        console.log(`[Voice] listMediaDbs: ${t2 - t1}ms`)
+
+        if (!mediaDbsResult.success || !mediaDbsResult.data || mediaDbsResult.data.length === 0) {
+          return null
+        }
+
+        mediaDbFiles = mediaDbsResult.data as string[]
+        this.mediaDbsCache = mediaDbFiles // 永久缓存
+      }
+
+      // 在所有 media 数据库中查找
+      for (const dbPath of mediaDbFiles) {
+        try {
+          // 检查缓存
+          let schema = this.mediaDbSchemaCache.get(dbPath)
+
+          if (!schema) {
+            const t3 = Date.now()
+            // 第一次查询，获取表结构并缓存
+            const tablesResult = await wcdbService.execQuery('media', dbPath,
+              "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'VoiceInfo%'"
+            )
+            const t4 = Date.now()
+            console.log(`[Voice] 查询VoiceInfo表: ${t4 - t3}ms`)
+
+            if (!tablesResult.success || !tablesResult.rows || tablesResult.rows.length === 0) {
+              continue
+            }
+
+            const voiceTable = tablesResult.rows[0].name
+
+            const t5 = Date.now()
+            const columnsResult = await wcdbService.execQuery('media', dbPath,
+              `PRAGMA table_info('${voiceTable}')`
+            )
+            const t6 = Date.now()
+            console.log(`[Voice] 查询表结构: ${t6 - t5}ms`)
+
+            if (!columnsResult.success || !columnsResult.rows) {
+              continue
+            }
+
+            // 创建列名映射（原始名称 -> 小写名称）
+            const columnMap = new Map<string, string>()
+            for (const c of columnsResult.rows) {
+              const name = String(c.name || '')
+              if (name) {
+                columnMap.set(name.toLowerCase(), name)
+              }
+            }
+
+            // 查找数据列（使用原始列名）
+            const dataColumnLower = ['voice_data', 'buf', 'voicebuf', 'data'].find(n => columnMap.has(n))
+            const dataColumn = dataColumnLower ? columnMap.get(dataColumnLower) : undefined
+
+            if (!dataColumn) {
+              continue
+            }
+
+            // 查找 chat_name_id 列
+            const chatNameIdColumnLower = ['chat_name_id', 'chatnameid', 'chat_nameid'].find(n => columnMap.has(n))
+            const chatNameIdColumn = chatNameIdColumnLower ? columnMap.get(chatNameIdColumnLower) : undefined
+
+            // 查找时间列
+            const timeColumnLower = ['create_time', 'createtime', 'time'].find(n => columnMap.has(n))
+            const timeColumn = timeColumnLower ? columnMap.get(timeColumnLower) : undefined
+
+            const t7 = Date.now()
+            // 查找 Name2Id 表
+            const name2IdTablesResult = await wcdbService.execQuery('media', dbPath,
+              "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Name2Id%'"
+            )
+            const t8 = Date.now()
+            console.log(`[Voice] 查询Name2Id表: ${t8 - t7}ms`)
+
+            const name2IdTable = (name2IdTablesResult.success && name2IdTablesResult.rows && name2IdTablesResult.rows.length > 0)
+              ? name2IdTablesResult.rows[0].name
+              : undefined
+
+            schema = {
+              voiceTable,
+              dataColumn,
+              chatNameIdColumn,
+              timeColumn,
+              name2IdTable
+            }
+
+            // 缓存表结构
+            this.mediaDbSchemaCache.set(dbPath, schema)
+          }
+
+          // 策略1: 通过 chat_name_id + create_time 查找（最准确）
+          if (schema.chatNameIdColumn && schema.timeColumn && schema.name2IdTable) {
+            const t9 = Date.now()
+            // 批量获取所有 candidates 的 chat_name_id（减少查询次数）
+            const candidatesStr = candidates.map(c => `'${c.replace(/'/g, "''")}'`).join(',')
+            const name2IdResult = await wcdbService.execQuery('media', dbPath,
+              `SELECT user_name, rowid FROM ${schema.name2IdTable} WHERE user_name IN (${candidatesStr})`
+            )
+            const t10 = Date.now()
+            console.log(`[Voice] 查询chat_name_id: ${t10 - t9}ms`)
+
+            if (name2IdResult.success && name2IdResult.rows && name2IdResult.rows.length > 0) {
+              // 构建 chat_name_id 列表
+              const chatNameIds = name2IdResult.rows.map((r: any) => r.rowid)
+              const chatNameIdsStr = chatNameIds.join(',')
+
+              const t11 = Date.now()
+              // 一次查询所有可能的语音
+              const voiceResult = await wcdbService.execQuery('media', dbPath,
+                `SELECT ${schema.dataColumn} AS data FROM ${schema.voiceTable} WHERE ${schema.chatNameIdColumn} IN (${chatNameIdsStr}) AND ${schema.timeColumn} = ${createTime} LIMIT 1`
+              )
+              const t12 = Date.now()
+              console.log(`[Voice] 策略1查询语音: ${t12 - t11}ms`)
+
+              if (voiceResult.success && voiceResult.rows && voiceResult.rows.length > 0) {
+                const row = voiceResult.rows[0]
+                const silkData = this.decodeVoiceBlob(row.data)
+                if (silkData) {
+                  console.log(`[Voice] getVoiceDataFromMediaDb总耗时: ${Date.now() - startTime}ms`)
+                  return silkData
+                }
+              }
+            }
+          }
+
+          // 策略2: 只通过 create_time 查找（兜底）
+          if (schema.timeColumn) {
+            const t13 = Date.now()
+            const voiceResult = await wcdbService.execQuery('media', dbPath,
+              `SELECT ${schema.dataColumn} AS data FROM ${schema.voiceTable} WHERE ${schema.timeColumn} = ${createTime} LIMIT 1`
+            )
+            const t14 = Date.now()
+            console.log(`[Voice] 策略2查询语音: ${t14 - t13}ms`)
+
+            if (voiceResult.success && voiceResult.rows && voiceResult.rows.length > 0) {
+              const row = voiceResult.rows[0]
+              const silkData = this.decodeVoiceBlob(row.data)
+              if (silkData) {
+                console.log(`[Voice] getVoiceDataFromMediaDb总耗时: ${Date.now() - startTime}ms`)
+                return silkData
+              }
+            }
+          }
+
+          // 策略3: 时间范围查找（±5秒，处理时间戳不精确的情况）
+          if (schema.timeColumn) {
+            const t15 = Date.now()
+            const voiceResult = await wcdbService.execQuery('media', dbPath,
+              `SELECT ${schema.dataColumn} AS data FROM ${schema.voiceTable} WHERE ${schema.timeColumn} BETWEEN ${createTime - 5} AND ${createTime + 5} ORDER BY ABS(${schema.timeColumn} - ${createTime}) LIMIT 1`
+            )
+            const t16 = Date.now()
+            console.log(`[Voice] 策略3查询语音: ${t16 - t15}ms`)
+
+            if (voiceResult.success && voiceResult.rows && voiceResult.rows.length > 0) {
+              const row = voiceResult.rows[0]
+              const silkData = this.decodeVoiceBlob(row.data)
+              if (silkData) {
+                console.log(`[Voice] getVoiceDataFromMediaDb总耗时: ${Date.now() - startTime}ms`)
+                return silkData
+              }
+            }
+          }
+        } catch (e) {
+          // 静默失败，继续尝试下一个数据库
+        }
+      }
+
+      return null
+    } catch (e) {
+      return null
+    }
+  }
+
+  /**
+   * 检查语音是否已有缓存（只检查内存，不查询数据库）
    */
   async resolveVoiceCache(sessionId: string, msgId: string): Promise<{ success: boolean; hasCache: boolean; data?: string }> {
     try {
+      // 直接用 msgId 生成 cacheKey，不查询数据库
+      // 注意：这里的 cacheKey 可能不准确（因为没有 createTime），但只是用来快速检查缓存
+      // 如果缓存未命中，用户点击时会重新用正确的 cacheKey 查询
       const cacheKey = this.getVoiceCacheKey(sessionId, msgId)
 
-      // 1. 检查内存缓存
+      // 检查内存缓存
       const inMemory = this.voiceWavCache.get(cacheKey)
       if (inMemory) {
         return { success: true, hasCache: true, data: inMemory.toString('base64') }
-      }
-
-      // 2. 检查文件缓存
-      const cachedFile = this.getVoiceCacheFilePath(cacheKey)
-      if (existsSync(cachedFile)) {
-        const wavData = readFileSync(cachedFile)
-        this.cacheVoiceWav(cacheKey, wavData) // 回甜内存
-        return { success: true, hasCache: true, data: wavData.toString('base64') }
       }
 
       return { success: true, hasCache: false }
@@ -2460,60 +2734,133 @@ class ChatService {
   async getVoiceTranscript(
     sessionId: string,
     msgId: string,
+    createTime?: number,
     onPartial?: (text: string) => void
   ): Promise<{ success: boolean; transcript?: string; error?: string }> {
-    const cacheKey = this.getVoiceCacheKey(sessionId, msgId)
-    const cached = this.voiceTranscriptCache.get(cacheKey)
-    if (cached) {
-      return { success: true, transcript: cached }
-    }
+    const startTime = Date.now()
+    console.log(`[Transcribe] 开始转写: sessionId=${sessionId}, msgId=${msgId}, createTime=${createTime}`)
 
-    const pending = this.voiceTranscriptPending.get(cacheKey)
-    if (pending) {
-      return pending
-    }
+    try {
+      let msgCreateTime = createTime
+      let serverId: string | number | undefined
 
-    const task = (async () => {
-      try {
-        let wavData = this.voiceWavCache.get(cacheKey)
-        if (!wavData) {
-          // 获取消息详情以拿到 createTime 和 serverId
-          let cTime: number | undefined
-          let sId: string | number | undefined
-          const msgResult = await this.getMessageById(sessionId, parseInt(msgId, 10))
-          if (msgResult.success && msgResult.message) {
-            cTime = msgResult.message.createTime
-            sId = msgResult.message.serverId
-          }
+      // 如果前端没传 createTime，才需要查询消息（这个很慢）
+      if (!msgCreateTime) {
+        const t1 = Date.now()
+        const msgResult = await this.getMessageById(sessionId, parseInt(msgId, 10))
+        const t2 = Date.now()
+        console.log(`[Transcribe] getMessageById: ${t2 - t1}ms`)
 
-          const voiceResult = await this.getVoiceData(sessionId, msgId, cTime, sId)
-          if (!voiceResult.success || !voiceResult.data) {
-            return { success: false, error: voiceResult.error || '语音解码失败' }
-          }
-          wavData = Buffer.from(voiceResult.data, 'base64')
+        if (msgResult.success && msgResult.message) {
+          msgCreateTime = msgResult.message.createTime
+          serverId = msgResult.message.serverId
+          console.log(`[Transcribe] 获取到 createTime=${msgCreateTime}, serverId=${serverId}`)
         }
-
-        const result = await voiceTranscribeService.transcribeWavBuffer(wavData, (text) => {
-          onPartial?.(text)
-        })
-        if (result.success && result.transcript) {
-          this.cacheVoiceTranscript(cacheKey, result.transcript)
-        }
-        return result
-      } catch (error) {
-        return { success: false, error: String(error) }
-      } finally {
-        this.voiceTranscriptPending.delete(cacheKey)
       }
-    })()
 
-    this.voiceTranscriptPending.set(cacheKey, task)
-    return task
+      if (!msgCreateTime) {
+        console.error(`[Transcribe] 未找到消息时间戳`)
+        return { success: false, error: '未找到消息时间戳' }
+      }
+
+      // 使用正确的 cacheKey（包含 createTime）
+      const cacheKey = this.getVoiceCacheKey(sessionId, msgId, msgCreateTime)
+      console.log(`[Transcribe] cacheKey=${cacheKey}`)
+
+      // 检查转写缓存
+      const cached = this.voiceTranscriptCache.get(cacheKey)
+      if (cached) {
+        console.log(`[Transcribe] 缓存命中，总耗时: ${Date.now() - startTime}ms`)
+        return { success: true, transcript: cached }
+      }
+
+      // 检查是否正在转写
+      const pending = this.voiceTranscriptPending.get(cacheKey)
+      if (pending) {
+        console.log(`[Transcribe] 正在转写中，等待结果`)
+        return pending
+      }
+
+      const task = (async () => {
+        try {
+          // 检查内存中是否有 WAV 数据
+          let wavData = this.voiceWavCache.get(cacheKey)
+          if (wavData) {
+            console.log(`[Transcribe] WAV内存缓存命中，大小: ${wavData.length} bytes`)
+          } else {
+            // 检查文件缓存
+            const voiceCacheDir = this.getVoiceCacheDir()
+            const wavFilePath = join(voiceCacheDir, `${cacheKey}.wav`)
+            if (existsSync(wavFilePath)) {
+              try {
+                wavData = readFileSync(wavFilePath)
+                console.log(`[Transcribe] WAV文件缓存命中，大小: ${wavData.length} bytes`)
+                // 同时缓存到内存
+                this.cacheVoiceWav(cacheKey, wavData)
+              } catch (e) {
+                console.error(`[Transcribe] 读取缓存文件失败:`, e)
+              }
+            }
+          }
+
+          if (!wavData) {
+            console.log(`[Transcribe] WAV缓存未命中，调用 getVoiceData`)
+            const t3 = Date.now()
+            // 调用 getVoiceData 获取并解码
+            const voiceResult = await this.getVoiceData(sessionId, msgId, msgCreateTime, serverId)
+            const t4 = Date.now()
+            console.log(`[Transcribe] getVoiceData: ${t4 - t3}ms, success=${voiceResult.success}`)
+
+            if (!voiceResult.success || !voiceResult.data) {
+              console.error(`[Transcribe] 语音解码失败: ${voiceResult.error}`)
+              return { success: false, error: voiceResult.error || '语音解码失败' }
+            }
+            wavData = Buffer.from(voiceResult.data, 'base64')
+            console.log(`[Transcribe] WAV数据大小: ${wavData.length} bytes`)
+          }
+
+          // 转写
+          console.log(`[Transcribe] 开始调用 transcribeWavBuffer`)
+          const t5 = Date.now()
+          const result = await voiceTranscribeService.transcribeWavBuffer(wavData, (text) => {
+            console.log(`[Transcribe] 部分结果: ${text}`)
+            onPartial?.(text)
+          })
+          const t6 = Date.now()
+          console.log(`[Transcribe] transcribeWavBuffer: ${t6 - t5}ms, success=${result.success}`)
+
+          if (result.success && result.transcript) {
+            console.log(`[Transcribe] 转写成功: ${result.transcript}`)
+            this.cacheVoiceTranscript(cacheKey, result.transcript)
+          } else {
+            console.error(`[Transcribe] 转写失败: ${result.error}`)
+          }
+
+          console.log(`[Transcribe] 总耗时: ${Date.now() - startTime}ms`)
+          return result
+        } catch (error) {
+          console.error(`[Transcribe] 异常:`, error)
+          return { success: false, error: String(error) }
+        } finally {
+          this.voiceTranscriptPending.delete(cacheKey)
+        }
+      })()
+
+      this.voiceTranscriptPending.set(cacheKey, task)
+      return task
+    } catch (error) {
+      console.error(`[Transcribe] 外层异常:`, error)
+      return { success: false, error: String(error) }
+    }
   }
 
 
 
-  private getVoiceCacheKey(sessionId: string, msgId: string): string {
+  private getVoiceCacheKey(sessionId: string, msgId: string, createTime?: number): string {
+    // 优先使用 createTime 作为key，避免不同会话中localId相同导致的混乱
+    if (createTime) {
+      return `${sessionId}_${createTime}`
+    }
     return `${sessionId}_${msgId}`
   }
 
@@ -2523,32 +2870,6 @@ class ChatService {
       const oldestKey = this.voiceWavCache.keys().next().value
       if (oldestKey) this.voiceWavCache.delete(oldestKey)
     }
-  }
-
-  /**
-   * 获取语音缓存文件路径
-   */
-  private getVoiceCacheFilePath(cacheKey: string): string {
-    const cachePath = this.configService.get('cachePath') as string | undefined
-    let baseDir: string
-    if (cachePath && cachePath.trim()) {
-      baseDir = join(cachePath, 'Voices')
-    } else {
-      const documentsPath = app.getPath('documents')
-      baseDir = join(documentsPath, 'WeFlow', 'Voices')
-    }
-    if (!existsSync(baseDir)) {
-      mkdirSync(baseDir, { recursive: true })
-    }
-    return join(baseDir, `${cacheKey}.wav`)
-  }
-
-  /**
-   * 保存语音到文件缓存
-   */
-  private saveVoiceCache(cacheKey: string, wavData: Buffer): void {
-    const filePath = this.getVoiceCacheFilePath(cacheKey)
-    writeFileSync(filePath, wavData)
   }
 
   private cacheVoiceTranscript(cacheKey: string, transcript: string): void {
@@ -2561,8 +2882,6 @@ class ChatService {
 
   async getMessageById(sessionId: string, localId: number): Promise<{ success: boolean; message?: Message; error?: string }> {
     try {
-      console.info('[ChatService] getMessageById (SQL)', { sessionId, localId })
-
       // 1. 获取该会话所在的消息表
       // 注意：这里使用 getMessageTableStats 而不是 getMessageTables，因为前者包含 db_path
       const tableStats = await wcdbService.getMessageTableStats(sessionId)
@@ -2585,7 +2904,6 @@ class ChatService {
           const message = this.parseMessage(row)
 
           if (message.localId !== 0) {
-            console.info('[ChatService] getMessageById hit', { tableName, localId: message.localId })
             return { success: true, message }
           }
         }
@@ -2628,6 +2946,7 @@ class ChatService {
       isSend: this.getRowInt(row, ['computed_is_send', 'computedIsSend', 'is_send', 'isSend', 'WCDB_CT_is_send'], 0),
       senderUsername: this.getRowField(row, ['sender_username', 'senderUsername', 'sender', 'WCDB_CT_sender_username']) || null,
       rawContent: rawContent,
+      content: rawContent,  // 添加原始内容供视频MD5解析使用
       parsedContent: this.parseMessageContent(rawContent, this.getRowInt(row, ['local_type', 'localType', 'type', 'msg_type', 'msgType', 'WCDB_CT_local_type'], 0))
     }
 

@@ -53,7 +53,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openAgreementWindow: () => ipcRenderer.invoke('window:openAgreementWindow'),
     completeOnboarding: () => ipcRenderer.invoke('window:completeOnboarding'),
     openOnboardingWindow: () => ipcRenderer.invoke('window:openOnboardingWindow'),
-    setTitleBarOverlay: (options: { symbolColor: string }) => ipcRenderer.send('window:setTitleBarOverlay', options)
+    setTitleBarOverlay: (options: { symbolColor: string }) => ipcRenderer.send('window:setTitleBarOverlay', options),
+    openVideoPlayerWindow: (videoPath: string, videoWidth?: number, videoHeight?: number) =>
+      ipcRenderer.invoke('window:openVideoPlayerWindow', videoPath, videoWidth, videoHeight),
+    resizeToFitVideo: (videoWidth: number, videoHeight: number) =>
+      ipcRenderer.invoke('window:resizeToFitVideo', videoWidth, videoHeight)
   },
 
   // 数据库路径
@@ -109,7 +113,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getVoiceData: (sessionId: string, msgId: string, createTime?: number, serverId?: string | number) =>
       ipcRenderer.invoke('chat:getVoiceData', sessionId, msgId, createTime, serverId),
     resolveVoiceCache: (sessionId: string, msgId: string) => ipcRenderer.invoke('chat:resolveVoiceCache', sessionId, msgId),
-    getVoiceTranscript: (sessionId: string, msgId: string) => ipcRenderer.invoke('chat:getVoiceTranscript', sessionId, msgId),
+    getVoiceTranscript: (sessionId: string, msgId: string, createTime?: number) => ipcRenderer.invoke('chat:getVoiceTranscript', sessionId, msgId, createTime),
     onVoiceTranscriptPartial: (callback: (payload: { msgId: string; text: string }) => void) => {
       const listener = (_: any, payload: { msgId: string; text: string }) => callback(payload)
       ipcRenderer.on('chat:voiceTranscriptPartial', listener)
@@ -135,6 +139,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('image:cacheResolved', (_, payload) => callback(payload))
       return () => ipcRenderer.removeAllListeners('image:cacheResolved')
     }
+  },
+
+  // 视频
+  video: {
+    getVideoInfo: (videoMd5: string) => ipcRenderer.invoke('video:getVideoInfo', videoMd5),
+    parseVideoMd5: (content: string) => ipcRenderer.invoke('video:parseVideoMd5', content)
   },
 
   // 数据分析

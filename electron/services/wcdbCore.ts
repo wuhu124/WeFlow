@@ -110,7 +110,7 @@ export class WcdbCore {
   private writeLog(message: string, force = false): void {
     if (!force && !this.isLogEnabled()) return
     const line = `[${new Date().toISOString()}] ${message}`
-    console.log(`[WCDB] ${line}`)
+    // 移除控制台日志，只写入文件
     try {
       const base = this.userDataPath || process.env.WCDB_LOG_DIR || process.cwd()
       const dir = join(base, 'logs')
@@ -620,7 +620,7 @@ export class WcdbCore {
         try {
           this.wcdbSetMyWxid(this.handle, wxid)
         } catch (e) {
-          console.warn('设置 wxid 失败:', e)
+          // 静默失败
         }
       }
       if (this.isLogEnabled()) {
@@ -799,7 +799,6 @@ export class WcdbCore {
       await new Promise(resolve => setImmediate(resolve))
 
       if (result !== 0 || !outPtr[0]) {
-        console.warn(`[wcdbCore] getAvatarUrls DLL调用失败: result=${result}, usernames=${toFetch.length}`)
         if (Object.keys(resultMap).length > 0) {
           return { success: true, map: resultMap, error: `获取头像失败: ${result}` }
         }
@@ -807,25 +806,18 @@ export class WcdbCore {
       }
       const jsonStr = this.decodeJsonPtr(outPtr[0])
       if (!jsonStr) {
-        console.error('[wcdbCore] getAvatarUrls 解析JSON失败')
         return { success: false, error: '解析头像失败' }
       }
       const map = JSON.parse(jsonStr) as Record<string, string>
-      let successCount = 0
-      let emptyCount = 0
       for (const username of toFetch) {
         const url = map[username]
         if (url && url.trim()) {
           resultMap[username] = url
           // 只缓存有效的URL
           this.avatarUrlCache.set(username, { url, updatedAt: now })
-          successCount++
-        } else {
-          emptyCount++
-          // 不缓存空URL,下次可以重新尝试
         }
+        // 不缓存空URL,下次可以重新尝试
       }
-      console.log(`[wcdbCore] getAvatarUrls 成功: ${successCount}个, 空结果: ${emptyCount}个, 总请求: ${toFetch.length}`)
       return { success: true, map: resultMap }
     } catch (e) {
       console.error('[wcdbCore] getAvatarUrls 异常:', e)

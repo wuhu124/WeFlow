@@ -16,6 +16,7 @@ import { annualReportService } from './services/annualReportService'
 import { exportService, ExportOptions } from './services/exportService'
 import { KeyService } from './services/keyService'
 import { voiceTranscribeService } from './services/voiceTranscribeService'
+import { videoService } from './services/videoService'
 
 
 // 配置自动更新
@@ -200,6 +201,107 @@ function createOnboardingWindow() {
   return onboardingWindow
 }
 
+/**
+ * 创建独立的视频播放窗口
+ * 窗口大小会根据视频比例自动调整
+ */
+function createVideoPlayerWindow(videoPath: string, videoWidth?: number, videoHeight?: number) {
+  const isDev = !!process.env.VITE_DEV_SERVER_URL
+  const iconPath = isDev
+    ? join(__dirname, '../public/icon.ico')
+    : join(process.resourcesPath, 'icon.ico')
+
+  // 获取屏幕尺寸
+  const { screen } = require('electron')
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize
+
+  // 计算窗口尺寸，只有标题栏 40px，控制栏悬浮
+  let winWidth = 854
+  let winHeight = 520
+  const titleBarHeight = 40
+
+  if (videoWidth && videoHeight && videoWidth > 0 && videoHeight > 0) {
+    const aspectRatio = videoWidth / videoHeight
+
+    const maxWidth = Math.floor(screenWidth * 0.85)
+    const maxHeight = Math.floor(screenHeight * 0.85)
+
+    if (aspectRatio >= 1) {
+      // 横向视频
+      winWidth = Math.min(videoWidth, maxWidth)
+      winHeight = Math.floor(winWidth / aspectRatio) + titleBarHeight
+
+      if (winHeight > maxHeight) {
+        winHeight = maxHeight
+        winWidth = Math.floor((winHeight - titleBarHeight) * aspectRatio)
+      }
+    } else {
+      // 竖向视频
+      const videoDisplayHeight = Math.min(videoHeight, maxHeight - titleBarHeight)
+      winHeight = videoDisplayHeight + titleBarHeight
+      winWidth = Math.floor(videoDisplayHeight * aspectRatio)
+
+      if (winWidth < 300) {
+        winWidth = 300
+        winHeight = Math.floor(winWidth / aspectRatio) + titleBarHeight
+      }
+    }
+
+    winWidth = Math.max(winWidth, 360)
+    winHeight = Math.max(winHeight, 280)
+  }
+
+  const win = new BrowserWindow({
+    width: winWidth,
+    height: winHeight,
+    minWidth: 360,
+    minHeight: 280,
+    icon: iconPath,
+    webPreferences: {
+      preload: join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: false
+    },
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#1a1a1a',
+      symbolColor: '#ffffff',
+      height: 40
+    },
+    show: false,
+    backgroundColor: '#000000',
+    autoHideMenuBar: true
+  })
+
+  win.once('ready-to-show', () => {
+    win.show()
+  })
+
+  const videoParam = `videoPath=${encodeURIComponent(videoPath)}`
+  if (process.env.VITE_DEV_SERVER_URL) {
+    win.loadURL(`${process.env.VITE_DEV_SERVER_URL}#/video-player-window?${videoParam}`)
+
+    win.webContents.on('before-input-event', (event, input) => {
+      if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) {
+        if (win.webContents.isDevToolsOpened()) {
+          win.webContents.closeDevTools()
+        } else {
+          win.webContents.openDevTools()
+        }
+        event.preventDefault()
+      }
+    })
+  } else {
+    win.loadFile(join(__dirname, '../dist/index.html'), {
+      hash: `/video-player-window?${videoParam}`
+    })
+  }
+
+  return win
+}
+
 function showMainWindow() {
   shouldShowMain = true
   if (mainWindowReady) {
@@ -356,6 +458,79 @@ function registerIpcHandlers() {
     }
   })
 
+  // 打开视频播放窗口
+  ipcMain.handle('window:openVideoPlayerWindow', (_, videoPath: string, videoWidth?: number, videoHeight?: number) => {
+    createVideoPlayerWindow(videoPath, videoWidth, videoHeight)
+  })
+
+  // 根据视频尺寸调整窗口大小
+  ipcMain.handle('window:resizeToFitVideo', (event, videoWidth: number, videoHeight: number) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || !videoWidth || !videoHeight) return
+
+    const { screen } = require('electron')
+    const primaryDisplay = screen.getPrimaryDisplay()
+    const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize
+
+    // 只有标题栏 40px，控制栏悬浮在视频上
+    const titleBarHeight = 40
+    const aspectRatio = videoWidth / videoHeight
+
+    const maxWidth = Math.floor(screenWidth * 0.85)
+    const maxHeight = Math.floor(screenHeight * 0.85)
+
+    let winWidth: number
+    let winHeight: number
+
+    if (aspectRatio >= 1) {
+      // 横向视频 - 以宽度为基准
+      winWidth = Math.min(videoWidth, maxWidth)
+      winHeight = Math.floor(winWidth / aspectRatio) + titleBarHeight
+
+      if (winHeight > maxHeight) {
+        winHeight = maxHeight
+        winWidth = Math.floor((winHeight - titleBarHeight) * aspectRatio)
+      }
+    } else {
+      // 竖向视频 - 以高度为基准
+      const videoDisplayHeight = Math.min(videoHeight, maxHeight - titleBarHeight)
+      winHeight = videoDisplayHeight + titleBarHeight
+      winWidth = Math.floor(videoDisplayHeight * aspectRatio)
+
+      // 确保宽度不会太窄
+      if (winWidth < 300) {
+        winWidth = 300
+        winHeight = Math.floor(winWidth / aspectRatio) + titleBarHeight
+      }
+    }
+
+    winWidth = Math.max(winWidth, 360)
+    winHeight = Math.max(winHeight, 280)
+
+    // 调整窗口大小并居中
+    win.setSize(winWidth, winHeight)
+    win.center()
+  })
+
+  // 视频相关
+  ipcMain.handle('video:getVideoInfo', async (_, videoMd5: string) => {
+    try {
+      const result = await videoService.getVideoInfo(videoMd5)
+      return { success: true, ...result }
+    } catch (e) {
+      return { success: false, error: String(e), exists: false }
+    }
+  })
+
+  ipcMain.handle('video:parseVideoMd5', async (_, content: string) => {
+    try {
+      const md5 = videoService.parseVideoMd5(content)
+      return { success: true, md5 }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
+
   // 数据库路径相关
   ipcMain.handle('dbpath:autoDetect', async () => {
     return dbPathService.autoDetect()
@@ -446,8 +621,8 @@ function registerIpcHandlers() {
     return chatService.resolveVoiceCache(sessionId, msgId)
   })
 
-  ipcMain.handle('chat:getVoiceTranscript', async (event, sessionId: string, msgId: string) => {
-    return chatService.getVoiceTranscript(sessionId, msgId, (text) => {
+  ipcMain.handle('chat:getVoiceTranscript', async (event, sessionId: string, msgId: string, createTime?: number) => {
+    return chatService.getVoiceTranscript(sessionId, msgId, createTime, (text) => {
       event.sender.send('chat:voiceTranscriptPartial', { msgId, text })
     })
   })

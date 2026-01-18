@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Search, MessageSquare, AlertCircle, Loader2, RefreshCw, X, ChevronDown, Info, Calendar, Database, Hash, Play, Pause, Image as ImageIcon } from 'lucide-react'
+import { Search, MessageSquare, AlertCircle, Loader2, RefreshCw, X, ChevronDown, Info, Calendar, Database, Hash, Play, Pause, Image as ImageIcon, Link } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { useChatStore } from '../stores/chatStore'
 import type { ChatSession, Message } from '../types/models'
@@ -1343,6 +1343,7 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, o
   const isSystem = isSystemMessage(message.localType)
   const isEmoji = message.localType === 47
   const isImage = message.localType === 3
+  const isVideo = message.localType === 43
   const isVoice = message.localType === 34
   const isSent = message.isSend === 1
   const [senderAvatarUrl, setSenderAvatarUrl] = useState<string | undefined>(undefined)
@@ -1370,6 +1371,56 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, o
   const [voiceDuration, setVoiceDuration] = useState(0)
   const [voiceWaveform, setVoiceWaveform] = useState<number[]>([])
   const voiceAutoDecryptTriggered = useRef(false)
+
+  // 视频相关状态
+  const [videoLoading, setVideoLoading] = useState(false)
+  const [videoInfo, setVideoInfo] = useState<{ videoUrl?: string; coverUrl?: string; thumbUrl?: string; exists: boolean } | null>(null)
+  const videoContainerRef = useRef<HTMLDivElement>(null)
+  const [isVideoVisible, setIsVideoVisible] = useState(false)
+  const [videoMd5, setVideoMd5] = useState<string | null>(null)
+
+  // 解析视频 MD5
+  useEffect(() => {
+    if (!isVideo) return
+
+    console.log('[Video Debug] Full message object:', JSON.stringify(message, null, 2))
+    console.log('[Video Debug] Message keys:', Object.keys(message))
+    console.log('[Video Debug] Message:', {
+      localId: message.localId,
+      localType: message.localType,
+      hasVideoMd5: !!message.videoMd5,
+      hasContent: !!message.content,
+      hasParsedContent: !!message.parsedContent,
+      hasRawContent: !!(message as any).rawContent,
+      contentPreview: message.content?.substring(0, 200),
+      parsedContentPreview: message.parsedContent?.substring(0, 200),
+      rawContentPreview: (message as any).rawContent?.substring(0, 200)
+    })
+
+    // 优先使用数据库中的 videoMd5
+    if (message.videoMd5) {
+      console.log('[Video Debug] Using videoMd5 from message:', message.videoMd5)
+      setVideoMd5(message.videoMd5)
+      return
+    }
+
+    // 尝试从多个可能的字段获取原始内容
+    const contentToUse = message.content || (message as any).rawContent || message.parsedContent
+    if (contentToUse) {
+      console.log('[Video Debug] Parsing MD5 from content, length:', contentToUse.length)
+      window.electronAPI.video.parseVideoMd5(contentToUse).then((result) => {
+        console.log('[Video Debug] Parse result:', result)
+        if (result && result.success && result.md5) {
+          console.log('[Video Debug] Parsed MD5:', result.md5)
+          setVideoMd5(result.md5)
+        } else {
+          console.error('[Video Debug] Failed to parse MD5:', result)
+        }
+      }).catch((err) => {
+        console.error('[Video Debug] Parse error:', err)
+      })
+    }
+  }, [isVideo, message.videoMd5, message.content, message.parsedContent])
 
   // 加载自动转文字配置
   useEffect(() => {
@@ -1784,7 +1835,16 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, o
         throw error
       }
 
-      const result = await window.electronAPI.chat.getVoiceTranscript(session.username, String(message.localId))
+      const result = await window.electronAPI.chat.getVoiceTranscript(
+        session.username,
+        String(message.localId),
+        message.createTime
+      )
+      console.log('[ChatPage] 调用转写:', {
+        sessionId: session.username,
+        msgId: message.localId,
+        createTime: message.createTime
+      })
       if (result.success) {
         const transcriptText = (result.transcript || '').trim()
         voiceTranscriptCache.set(voiceTranscriptCacheKey, transcriptText)
@@ -1829,6 +1889,62 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, o
     }
   }, [isVoice, message.localId, requestVoiceTranscript])
 
+  // 视频懒加载
+  useEffect(() => {
+    if (!isVideo || !videoContainerRef.current) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setIsVideoVisible(true)
+            observer.disconnect()
+          }
+        })
+      },
+      {
+        rootMargin: '200px 0px',
+        threshold: 0
+      }
+    )
+
+    observer.observe(videoContainerRef.current)
+
+    return () => observer.disconnect()
+  }, [isVideo])
+
+  // 加载视频信息
+  useEffect(() => {
+    if (!isVideo || !isVideoVisible || videoInfo || videoLoading) return
+    if (!videoMd5) {
+      console.log('[Video Debug] No videoMd5 available yet')
+      return
+    }
+
+    console.log('[Video Debug] Loading video info for MD5:', videoMd5)
+    setVideoLoading(true)
+    window.electronAPI.video.getVideoInfo(videoMd5).then((result) => {
+      console.log('[Video Debug] getVideoInfo result:', result)
+      if (result && result.success) {
+        setVideoInfo({
+          exists: result.exists,
+          videoUrl: result.videoUrl,
+          coverUrl: result.coverUrl,
+          thumbUrl: result.thumbUrl
+        })
+      } else {
+        console.error('[Video Debug] Video info failed:', result)
+        setVideoInfo({ exists: false })
+      }
+    }).catch((err) => {
+      console.error('[Video Debug] getVideoInfo error:', err)
+      setVideoInfo({ exists: false })
+    }).finally(() => {
+      setVideoLoading(false)
+    })
+  }, [isVideo, isVideoVisible, videoInfo, videoLoading, videoMd5])
+
+
   // 根据设置决定是否自动转写
   const [autoTranscribeEnabled, setAutoTranscribeEnabled] = useState(false)
 
@@ -1856,6 +1972,10 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, o
     )
   }
 
+  // 检测是否为链接卡片消息
+  const isLinkMessage = String(message.localType) === '21474836529' ||
+    (message.rawContent && (message.rawContent.includes('<appmsg') || message.rawContent.includes('&lt;appmsg'))) ||
+    (message.parsedContent && (message.parsedContent.includes('<appmsg') || message.parsedContent.includes('&lt;appmsg')))
   const bubbleClass = isSent ? 'sent' : 'received'
 
   // 头像逻辑：
@@ -1868,6 +1988,7 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, o
   const avatarLetter = isSent
     ? '我'
     : getAvatarLetter(isGroupChat ? (senderName || message.senderUsername || '?') : (session.displayName || session.username))
+
 
   // 是否有引用消息
   const hasQuote = message.quotedContent && message.quotedContent.length > 0
@@ -1955,6 +2076,72 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, o
               )}
             </>
           )}
+        </div>
+      )
+    }
+
+    // 视频消息
+    if (isVideo) {
+      const handlePlayVideo = useCallback(async () => {
+        if (!videoInfo?.videoUrl) return
+        try {
+          await window.electronAPI.window.openVideoPlayerWindow(videoInfo.videoUrl)
+        } catch (e) {
+          console.error('打开视频播放窗口失败:', e)
+        }
+      }, [videoInfo?.videoUrl])
+
+      // 未进入可视区域时显示占位符
+      if (!isVideoVisible) {
+        return (
+          <div className="video-placeholder" ref={videoContainerRef}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polygon points="23 7 16 12 23 17 23 7"></polygon>
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+            </svg>
+          </div>
+        )
+      }
+
+      // 加载中
+      if (videoLoading) {
+        return (
+          <div className="video-loading" ref={videoContainerRef}>
+            <Loader2 size={20} className="spin" />
+          </div>
+        )
+      }
+
+      // 视频不存在
+      if (!videoInfo?.exists || !videoInfo.videoUrl) {
+        return (
+          <div className="video-unavailable" ref={videoContainerRef}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polygon points="23 7 16 12 23 17 23 7"></polygon>
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+            </svg>
+            <span>视频不可用</span>
+          </div>
+        )
+      }
+
+      // 默认显示缩略图，点击打开独立播放窗口
+      const thumbSrc = videoInfo.thumbUrl || videoInfo.coverUrl
+      return (
+        <div className="video-thumb-wrapper" ref={videoContainerRef} onClick={handlePlayVideo}>
+          {thumbSrc ? (
+            <img src={thumbSrc} alt="视频缩略图" className="video-thumb" />
+          ) : (
+            <div className="video-thumb-placeholder">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+              </svg>
+            </div>
+          )}
+          <div className="video-play-button">
+            <Play size={32} fill="white" />
+          </div>
         </div>
       )
     }
@@ -2157,6 +2344,10 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, o
         />
       )
     }
+
+    // 解析引用消息（Links / App Messages）
+    // localType: 21474836529 corresponds to AppMessage which often contains links
+
     // 带引用的消息
     if (hasQuote) {
       return (
@@ -2168,6 +2359,68 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, o
           <div className="message-text">{renderTextWithEmoji(cleanMessageContent(message.parsedContent))}</div>
         </div>
       )
+    }
+
+    // 解析引用消息（Links / App Messages）
+    // localType: 21474836529 corresponds to AppMessage which often contains links
+    if (isLinkMessage) {
+      try {
+        // 清理内容：移除可能的 wxid 前缀，找到 XML 起始位置
+        let contentToParse = message.rawContent || message.parsedContent || '';
+        const xmlStartIndex = contentToParse.indexOf('<');
+        if (xmlStartIndex >= 0) {
+          contentToParse = contentToParse.substring(xmlStartIndex);
+        }
+
+        // 处理 HTML 转义字符
+        if (contentToParse.includes('&lt;')) {
+          contentToParse = contentToParse
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&amp;/g, '&')
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'");
+        }
+
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(contentToParse, "text/xml");
+        const appMsg = doc.querySelector('appmsg');
+
+        if (appMsg) {
+          const title = doc.querySelector('title')?.textContent || '未命名链接';
+          const des = doc.querySelector('des')?.textContent || '无描述';
+          const url = doc.querySelector('url')?.textContent || '';
+
+          return (
+            <div
+              className="link-message"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (url) {
+                  // 优先使用 electron 接口打开外部浏览器
+                  if (window.electronAPI?.shell?.openExternal) {
+                    window.electronAPI.shell.openExternal(url);
+                  } else {
+                    window.open(url, '_blank');
+                  }
+                }
+              }}
+            >
+              <div className="link-header">
+                <div className="link-content">
+                  <div className="link-title" title={title}>{title}</div>
+                  <div className="link-desc" title={des}>{des}</div>
+                </div>
+                <div className="link-icon">
+                  <Link size={24} />
+                </div>
+              </div>
+            </div>
+          );
+        }
+      } catch (e) {
+        console.error('Failed to parse app message', e);
+      }
     }
     // 普通消息
     return <div className="bubble-content">{renderTextWithEmoji(cleanMessageContent(message.parsedContent))}</div>

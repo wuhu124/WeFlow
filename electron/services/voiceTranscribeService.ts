@@ -224,13 +224,16 @@ export class VoiceTranscribeService {
         let finalTranscript = ''
 
         worker.on('message', (msg: any) => {
+          console.log('[VoiceTranscribe] Worker 消息:', msg)
           if (msg.type === 'partial') {
             onPartial?.(msg.text)
           } else if (msg.type === 'final') {
             finalTranscript = msg.text
+            console.log('[VoiceTranscribe] 最终文本:', finalTranscript)
             resolve({ success: true, transcript: finalTranscript })
             worker.terminate()
           } else if (msg.type === 'error') {
+            console.error('[VoiceTranscribe] Worker 错误:', msg.error)
             resolve({ success: false, error: msg.error })
             worker.terminate()
           }
