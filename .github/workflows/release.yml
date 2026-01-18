@@ -75,8 +75,13 @@ jobs:
           cat release-notes.md
           echo "=== RELEASE NOTES CONTENT END ==="
 
+      - name: Inject Configuration
+        shell: bash
+        run: |
+          npm pkg set build.releaseInfo.releaseNotesFile=release-notes.md
+
       - name: Package and Publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          npx electron-builder --publish always -c.releaseInfo.releaseNotesFile=release-notes.md
+          npx electron-builder --publish always
