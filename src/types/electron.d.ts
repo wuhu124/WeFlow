@@ -349,6 +349,8 @@ export interface ElectronAPI {
       }>
       error?: string
     }>
+    debugResource: (url: string) => Promise<{ success: boolean; status?: number; headers?: any; error?: string }>
+    proxyImage: (url: string) => Promise<{ success: boolean; dataUrl?: string; error?: string }>
   }
 }
 

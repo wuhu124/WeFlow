@@ -38,9 +38,10 @@ WeFlow 是一个**完全本地**的微信**实时**聊天记录查看、分析�
 
 <p align="center">
   <img src="2wm.png" alt="WeFlow 微信交流群二维码（一群）" width="220" style="margin-right: 16px;">
-  <img src="3wm.png" alt="WeFlow 微信交流群二维码（二群）" width="220">
+  <img src="3wm.png" alt="WeFlow 微信交流群二维码（二群）" width="220" style="margin-right: 16px;">
+  <img src="4wm.jpg" alt="WeFlow 微信交流群二维码（三群）" width="220"
 </p>
-<p align="center">一群满了加二群</p>
+<p align="center">扫到哪个算哪个</p>
 
 ## 主要功能
 

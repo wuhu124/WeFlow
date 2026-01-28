@@ -137,6 +137,28 @@ function createWindow(options: { autoShow?: boolean } = {}) {
     win.loadFile(join(__dirname, '../dist/index.html'))
   }
 
+  // 拦截请求，修改 Referer 和 User-Agent 以通过微信 CDN 鉴权
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    {
+      urls: [
+        '*://*.qpic.cn/*',
+        '*://*.qlogo.cn/*',
+        '*://*.wechat.com/*',
+        '*://*.weixin.qq.com/*'
+      ]
+    },
+    (details, callback) => {
+      details.requestHeaders['User-Agent'] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) WindowsWechat(0x63090719) XWEB/8351"
+      details.requestHeaders['Accept'] = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+      details.requestHeaders['Accept-Encoding'] = "gzip, deflate, br"
+      details.requestHeaders['Accept-Language'] = "zh-CN,zh;q=0.9"
+      details.requestHeaders['Referer'] = "https://servicewechat.com/"
+      details.requestHeaders['Connection'] = "keep-alive"
+      details.requestHeaders['Range'] = "bytes=0-"
+      callback({ cancel: false, requestHeaders: details.requestHeaders })
+    }
+  )
+
   return win
 }
 
@@ -685,6 +707,14 @@ function registerIpcHandlers() {
 
   ipcMain.handle('sns:getTimeline', async (_, limit: number, offset: number, usernames?: string[], keyword?: string, startTime?: number, endTime?: number) => {
     return snsService.getTimeline(limit, offset, usernames, keyword, startTime, endTime)
+  })
+
+  ipcMain.handle('sns:debugResource', async (_, url: string) => {
+    return snsService.debugResource(url)
+  })
+
+  ipcMain.handle('sns:proxyImage', async (_, url: string) => {
+    return snsService.proxyImage(url)
   })
 
   // 私聊克隆

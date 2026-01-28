@@ -217,6 +217,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 朋友圈
   sns: {
     getTimeline: (limit: number, offset: number, usernames?: string[], keyword?: string, startTime?: number, endTime?: number) =>
-      ipcRenderer.invoke('sns:getTimeline', limit, offset, usernames, keyword, startTime, endTime)
+      ipcRenderer.invoke('sns:getTimeline', limit, offset, usernames, keyword, startTime, endTime),
+    debugResource: (url: string) => ipcRenderer.invoke('sns:debugResource', url),
+    proxyImage: (url: string) => ipcRenderer.invoke('sns:proxyImage', url)
   }
 })

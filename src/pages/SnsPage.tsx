@@ -1,5 +1,5 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { RefreshCw, Heart, Search, Calendar, User, X, Filter, Play, ImageIcon } from 'lucide-react'
+﻿import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { RefreshCw, Heart, Search, Calendar, User, X, Filter, Play, ImageIcon, Zap, Download } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import { ImagePreview } from '../components/ImagePreview'
 import JumpToDateDialog from '../components/JumpToDateDialog'
@@ -13,29 +13,65 @@ interface SnsPost {
     createTime: number
     contentDesc: string
     type?: number
-    media: { url: string; thumb: string }[]
+    media: {
+        url: string
+        thumb: string
+        md5?: string
+        token?: string
+        key?: string
+        encIdx?: string
+        livePhoto?: {
+            url: string
+            thumb: string
+            token?: string
+            key?: string
+            encIdx?: string
+        }
+    }[]
     likes: string[]
     comments: { id: string; nickname: string; content: string; refCommentId: string; refNickname?: string }[]
+    rawXml?: string  // 原始 XML 数据
 }
 
-const MediaItem = ({ url, thumb, onPreview }: { url: string, thumb: string, onPreview: () => void }) => {
+const MediaItem = ({ media, onPreview }: { media: any, onPreview: () => void }) => {
     const [error, setError] = useState(false);
+    const { url, thumb, livePhoto } = media;
+    const isLive = !!livePhoto;
+    const targetUrl = thumb || url;
+
+    const handleDownload = (e: React.MouseEvent) => {
+        e.stopPropagation();
+
+        let downloadUrl = url;
+        let downloadKey = media.key || '';
+
+        if (isLive && media.livePhoto) {
+            downloadUrl = media.livePhoto.url;
+            downloadKey = media.livePhoto.key || '';
+        }
+
+        // TODO: 调用后端下载服务
+        // window.electronAPI.sns.download(downloadUrl, downloadKey);
+    };
 
     return (
-        <div className={`media-item ${error ? 'error' : ''}`}>
-            {!error ? (
-                <img
-                    src={thumb || url}
-                    alt=""
-                    loading="lazy"
-                    onClick={onPreview}
-                    onError={() => setError(true)}
-                />
-            ) : (
-                <div className="media-error-placeholder" onClick={onPreview}>
-                    <ImageIcon size={24} style={{ opacity: 0.3 }} />
+        <div className={`media-item ${error ? 'error' : ''}`} onClick={onPreview}>
+            <img
+                src={targetUrl}
+                alt=""
+                referrerPolicy="no-referrer"
+                loading="lazy"
+                onError={() => setError(true)}
+            />
+            {isLive && (
+                <div className="live-badge">
+                    <Zap size={10} fill="currentColor" />
+                    <span>LIVE</span>
                 </div>
             )}
+            <button className="download-btn-overlay" onClick={handleDownload} title="下载原图">
+                <Download size={14} />
+            </button>
         </div>
     );
 };
@@ -65,6 +101,7 @@ export default function SnsPage() {
     const [showJumpDialog, setShowJumpDialog] = useState(false)
     const [jumpTargetDate, setJumpTargetDate] = useState<Date | undefined>(undefined)
     const [previewImage, setPreviewImage] = useState<string | null>(null)
+    const [debugPost, setDebugPost] = useState<SnsPost | null>(null)
 
     const postsContainerRef = useRef<HTMLDivElement>(null)
 
@@ -264,7 +301,7 @@ export default function SnsPage() {
             setHasNewer(false)
             setSelectedUsernames([])
             setSearchKeyword('')
-            setJumpTargetDate(null)
+            setJumpTargetDate(undefined)
             loadContacts()
             loadPosts({ reset: true })
         }
@@ -515,6 +552,19 @@ export default function SnsPage() {
                                                             <div className="nickname">{post.nickname}</div>
                                                             <div className="time">{formatTime(post.createTime)}</div>
                                                         </div>
+                                                        <button
+                                                            className="debug-btn"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setDebugPost(post);
+                                                            }}
+                                                            title="查看原始数据"
+                                                        >
+                                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <polyline points="16 18 22 12 16 6"></polyline>
+                                                                <polyline points="8 6 2 12 8 18"></polyline>
+                                                            </svg>
+                                                        </button>
                                                     </div>
 
                                                     <div className="post-body">
@@ -528,7 +578,7 @@ export default function SnsPage() {
                                                         ) : post.media.length > 0 && (
                                                             <div className={`post-media-grid media-count-${Math.min(post.media.length, 9)}`}>
                                                                 {post.media.map((m, idx) => (
-                                                                    <MediaItem key={idx} url={m.url} thumb={m.thumb} onPreview={() => setPreviewImage(m.url)} />
+                                                                    <MediaItem key={idx} media={m} onPreview={() => setPreviewImage(m.url)} />
                                                                 ))}
                                                             </div>
                                                         )}
@@ -605,6 +655,154 @@ export default function SnsPage() {
                 }}
                 currentDate={jumpTargetDate || new Date()}
             />
+
+            {/* Debug Info Dialog */}
+            {debugPost && (
+                <div className="modal-overlay" onClick={() => setDebugPost(null)}>
+                    <div className="debug-dialog" onClick={(e) => e.stopPropagation()}>
+                        <div className="debug-dialog-header">
+                            <h3>原始数据 - {debugPost.nickname}</h3>
+                            <button className="close-btn" onClick={() => setDebugPost(null)}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="debug-dialog-body">
+
+                            <div className="debug-section">
+                                <h4>ℹ 基本信息</h4>
+                                <div className="debug-item">
+                                    <span className="debug-key">ID:</span>
+                                    <span className="debug-value">{debugPost.id}</span>
+                                </div>
+                                <div className="debug-item">
+                                    <span className="debug-key">用户名:</span>
+                                    <span className="debug-value">{debugPost.username}</span>
+                                </div>
+                                <div className="debug-item">
+                                    <span className="debug-key">昵称:</span>
+                                    <span className="debug-value">{debugPost.nickname}</span>
+                                </div>
+                                <div className="debug-item">
+                                    <span className="debug-key">时间:</span>
+                                    <span className="debug-value">{new Date(debugPost.createTime * 1000).toLocaleString()}</span>
+                                </div>
+                                <div className="debug-item">
+                                    <span className="debug-key">类型:</span>
+                                    <span className="debug-value">{debugPost.type}</span>
+                                </div>
+                            </div>
+
+                            <div className="debug-section">
+                                <h4> 媒体信息 ({debugPost.media.length} 项)</h4>
+                                {debugPost.media.map((media, idx) => (
+                                    <div key={idx} className="media-debug-item">
+                                        <div className="media-debug-header">媒体 {idx + 1}</div>
+                                        <div className="debug-item">
+                                            <span className="debug-key">URL:</span>
+                                            <span className="debug-value">{media.url}</span>
+                                        </div>
+                                        <div className="debug-item">
+                                            <span className="debug-key">缩略图:</span>
+                                            <span className="debug-value">{media.thumb}</span>
+                                        </div>
+                                        {media.md5 && (
+                                            <div className="debug-item">
+                                                <span className="debug-key">MD5:</span>
+                                                <span className="debug-value">{media.md5}</span>
+                                            </div>
+                                        )}
+                                        {media.token && (
+                                            <div className="debug-item">
+                                                <span className="debug-key">Token:</span>
+                                                <span className="debug-value">{media.token}</span>
+                                            </div>
+                                        )}
+                                        {media.key && (
+                                            <div className="debug-item">
+                                                <span className="debug-key">Key (解密密钥):</span>
+                                                <span className="debug-value">{media.key}</span>
+                                            </div>
+                                        )}
+                                        {media.encIdx && (
+                                            <div className="debug-item">
+                                                <span className="debug-key">Enc Index:</span>
+                                                <span className="debug-value">{media.encIdx}</span>
+                                            </div>
+                                        )}
+                                        {media.livePhoto && (
+                                            <div className="live-photo-debug">
+                                                <div className="live-photo-label"> Live Photo 视频部分:</div>
+                                                <div className="debug-item">
+                                                    <span className="debug-key">视频 URL:</span>
+                                                    <span className="debug-value">{media.livePhoto.url}</span>
+                                                </div>
+                                                <div className="debug-item">
+                                                    <span className="debug-key">视频缩略图:</span>
+                                                    <span className="debug-value">{media.livePhoto.thumb}</span>
+                                                </div>
+                                                {media.livePhoto.token && (
+                                                    <div className="debug-item">
+                                                        <span className="debug-key">视频 Token:</span>
+                                                        <span className="debug-value">{media.livePhoto.token}</span>
+                                                    </div>
+                                                )}
+                                                {media.livePhoto.key && (
+                                                    <div className="debug-item">
+                                                        <span className="debug-key">视频 Key:</span>
+                                                        <span className="debug-value">{media.livePhoto.key}</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* 原始 XML */}
+                            {debugPost.rawXml && (
+                                <div className="debug-section">
+                                    <h4> 原始 XML 数据</h4>
+                                    <pre className="json-code">{(() => {
+                                        // XML 缩进格式化
+                                        let formatted = '';
+                                        let indent = 0;
+                                        const tab = '  ';
+                                        const parts = debugPost.rawXml.split(/(<[^>]+>)/g).filter(p => p.trim());
+
+                                        for (const part of parts) {
+                                            if (!part.startsWith('<')) {
+                                                if (part.trim()) formatted += part;
+                                                continue;
+                                            }
+
+                                            if (part.startsWith('</')) {
+                                                indent = Math.max(0, indent - 1);
+                                                formatted += '\n' + tab.repeat(indent) + part;
+                                            } else if (part.endsWith('/>')) {
+                                                formatted += '\n' + tab.repeat(indent) + part;
+                                            } else {
+                                                formatted += '\n' + tab.repeat(indent) + part;
+                                                indent++;
+                                            }
+                                        }
+
+                                        return formatted.trim();
+                                    })()}</pre>
+                                    <button
+                                        className="copy-json-btn"
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(debugPost.rawXml || '');
+                                            alert('已复制 XML 到剪贴板');
+                                        }}
+                                    >
+                                        复制 XML
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

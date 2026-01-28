@@ -739,6 +739,59 @@
                             cursor: zoom-in;
                         }
 
+                        .live-badge {
+                            position: absolute;
+                            top: 6px;
+                            right: 6px;
+                            background: rgba(0, 0, 0, 0.6);
+                            backdrop-filter: blur(4px);
+                            color: white;
+                            font-size: 10px;
+                            font-weight: 700;
+                            padding: 2px 6px;
+                            border-radius: 4px;
+                            display: flex;
+                            align-items: center;
+                            gap: 2px;
+                            pointer-events: none;
+                            z-index: 2;
+                            transition: opacity 0.2s;
+                        }
+
+                        .download-btn-overlay {
+                            position: absolute;
+                            bottom: 6px;
+                            right: 6px;
+                            width: 28px;
+                            height: 28px;
+                            border-radius: 50%;
+                            background: rgba(0, 0, 0, 0.5);
+                            backdrop-filter: blur(4px);
+                            border: 1px solid rgba(255, 255, 255, 0.3);
+                            color: white;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            cursor: pointer;
+                            opacity: 0;
+                            transform: translateY(10px);
+                            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                            z-index: 2;
+
+                            &:hover {
+                                background: rgba(0, 0, 0, 0.7);
+                                transform: scale(1.1);
+                                border-color: rgba(255, 255, 255, 0.8);
+                            }
+                        }
+
+                        &:hover {
+                            .download-btn-overlay {
+                                opacity: 1;
+                                transform: translateY(0);
+                            }
+                        }
+
                         .media-error-placeholder {
                             position: absolute;
                             inset: 0;
@@ -936,5 +989,198 @@
     to {
         transform: scale(1);
         opacity: 1;
+    }
+}
+
+// Debug Dialog Styles
+.debug-btn {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+
+    &:hover {
+        background: var(--hover-bg);
+        color: var(--accent-color);
+        border-color: var(--accent-color);
+    }
+}
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    backdrop-filter: blur(4px);
+}
+
+.debug-dialog {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    width: 90%;
+    max-width: 800px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+
+    .debug-dialog-header {
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+
+        h3 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .close-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px;
+            display: flex;
+            align-items: center;
+            border-radius: 4px;
+            transition: all 0.2s;
+
+            &:hover {
+                background: var(--hover-bg);
+                color: var(--accent-color);
+            }
+        }
+    }
+
+    .debug-dialog-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+
+        .debug-section {
+            margin-bottom: 24px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+
+            &:last-child {
+                border-bottom: none;
+            }
+
+            h4 {
+                margin: 0 0 12px 0;
+                font-size: 14px;
+                font-weight: 600;
+                color: var(--accent-color);
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+
+            .debug-item {
+                display: flex;
+                gap: 12px;
+                padding: 8px 0;
+                align-items: flex-start;
+
+                .debug-key {
+                    font-weight: 500;
+                    color: var(--text-secondary);
+                    min-width: 140px;
+                    font-size: 13px;
+                    font-family: 'Consolas', 'Microsoft YaHei', 'SimHei', monospace;
+                }
+
+                .debug-value {
+                    flex: 1;
+                    color: var(--text-primary);
+                    font-size: 13px;
+                    word-break: break-all;
+                    font-family: 'Consolas', 'Microsoft YaHei', 'SimHei', monospace;
+                    user-select: text;
+                    cursor: text;
+                    padding: 2px 0;
+                }
+            }
+
+            .media-debug-item {
+                background: var(--bg-primary);
+                border: 1px solid var(--border-color);
+                border-radius: 8px;
+                padding: 12px;
+                margin-bottom: 12px;
+
+                .media-debug-header {
+                    font-weight: 600;
+                    color: var(--text-primary);
+                    margin-bottom: 8px;
+                    padding-bottom: 8px;
+                    border-bottom: 1px solid var(--border-color);
+                }
+
+                .live-photo-debug {
+                    margin-top: 12px;
+                    padding-top: 12px;
+                    border-top: 1px dashed var(--border-color);
+
+                    .live-photo-label {
+                        font-weight: 500;
+                        color: var(--accent-color);
+                        margin-bottom: 8px;
+                        font-size: 13px;
+                    }
+                }
+            }
+
+            .json-code {
+                background: var(--bg-tertiary);
+                color: var(--text-primary);
+                padding: 16px;
+                border-radius: 8px;
+                border: 1px solid var(--border-color);
+                overflow-x: auto;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 12px;
+                line-height: 1.5;
+                user-select: all;
+                max-height: 400px;
+                overflow-y: auto;
+            }
+
+            .copy-json-btn {
+                margin-top: 12px;
+                padding: 8px 16px;
+                background: var(--accent-color);
+                color: white;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+                font-weight: 500;
+                transition: all 0.2s;
+
+                &:hover {
+                    background: var(--accent-hover);
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 12px rgba(var(--accent-color-rgb), 0.3);
+                }
+            }
+        }
     }
 }
