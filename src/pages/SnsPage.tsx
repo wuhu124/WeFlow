@@ -165,8 +165,8 @@ export default function SnsPage() {
                             scrollAdjustmentRef.current = postsContainerRef.current.scrollHeight;
                         }
 
-                        const existingIds = new Set(currentPosts.map(p => p.id));
-                        const uniqueNewer = result.timeline.filter(p => !existingIds.has(p.id));
+                        const existingIds = new Set(currentPosts.map((p: SnsPost) => p.id));
+                        const uniqueNewer = result.timeline.filter((p: SnsPost) => !existingIds.has(p.id));
 
                         if (uniqueNewer.length > 0) {
                             setPosts(prev => [...uniqueNewer, ...prev]);
@@ -253,7 +253,7 @@ export default function SnsPage() {
                     }))
                 setContacts(initialContacts)
 
-                const usernames = initialContacts.map(c => c.username)
+                const usernames = initialContacts.map((c: { username: string }) => c.username)
                 const enriched = await window.electronAPI.chat.enrichSessionsContactInfo(usernames)
                 if (enriched.success && enriched.contacts) {
                     setContacts(prev => prev.map(c => {

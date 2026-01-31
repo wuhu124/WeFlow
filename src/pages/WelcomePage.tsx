@@ -106,10 +106,10 @@ function WelcomePage({ standalone = false }: WelcomePageProps) {
   }
 
   useEffect(() => {
-    const removeDb = window.electronAPI.key.onDbKeyStatus((payload) => {
+    const removeDb = window.electronAPI.key.onDbKeyStatus((payload: { message: string; level: number }) => {
       setDbKeyStatus(payload.message)
     })
-    const removeImage = window.electronAPI.key.onImageKeyStatus((payload) => {
+    const removeImage = window.electronAPI.key.onImageKeyStatus((payload: { message: string }) => {
       setImageKeyStatus(payload.message)
     })
     return () => {

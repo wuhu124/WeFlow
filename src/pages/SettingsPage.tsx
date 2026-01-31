@@ -155,10 +155,10 @@ function SettingsPage() {
   }, [showExportFormatSelect, showExportDateRangeSelect, showExportExcelColumnsSelect, showExportConcurrencySelect])
 
   useEffect(() => {
-    const removeDb = window.electronAPI.key.onDbKeyStatus((payload) => {
+    const removeDb = window.electronAPI.key.onDbKeyStatus((payload: { message: string; level: number }) => {
       setDbKeyStatus(payload.message)
     })
-    const removeImage = window.electronAPI.key.onImageKeyStatus((payload) => {
+    const removeImage = window.electronAPI.key.onImageKeyStatus((payload: { message: string }) => {
       setImageKeyStatus(payload.message)
     })
     return () => {
@@ -270,7 +270,7 @@ function SettingsPage() {
   }, [])
 
   useEffect(() => {
-    const removeListener = window.electronAPI.whisper?.onDownloadProgress?.((payload) => {
+    const removeListener = window.electronAPI.whisper?.onDownloadProgress?.((payload: { modelName: string; downloadedBytes: number; totalBytes?: number; percent?: number }) => {
       if (typeof payload.percent === 'number') {
         setWhisperDownloadProgress(payload.percent)
       }

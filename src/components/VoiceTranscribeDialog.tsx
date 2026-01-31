@@ -23,7 +23,7 @@ export const VoiceTranscribeDialog: React.FC<VoiceTranscribeDialogProps> = ({
             return
         }
 
-        const removeListener = window.electronAPI.whisper.onDownloadProgress((payload) => {
+        const removeListener = window.electronAPI.whisper.onDownloadProgress((payload: { modelName: string; downloadedBytes: number; totalBytes?: number; percent?: number }) => {
             if (payload.percent !== undefined) {
                 setDownloadProgress(payload.percent)
             }

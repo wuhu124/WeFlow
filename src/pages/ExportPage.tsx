@@ -189,7 +189,7 @@ function ExportPage() {
   }, [loadSessions])
 
   useEffect(() => {
-    const removeListener = window.electronAPI.export.onProgress?.((payload) => {
+    const removeListener = window.electronAPI.export.onProgress?.((payload: { current: number; total: number; currentSession: string; phase: string }) => {
       setExportProgress({
         current: payload.current,
         total: payload.total,

@@ -45,18 +45,18 @@ function ContactsPage() {
             if (contactsResult.success && contactsResult.contacts) {
                 console.log('📊 总联系人数:', contactsResult.contacts.length)
                 console.log('📊 按类型统计:', {
-                    friends: contactsResult.contacts.filter(c => c.type === 'friend').length,
-                    groups: contactsResult.contacts.filter(c => c.type === 'group').length,
-                    officials: contactsResult.contacts.filter(c => c.type === 'official').length,
-                    other: contactsResult.contacts.filter(c => c.type === 'other').length
+                    friends: contactsResult.contacts.filter((c: ContactInfo) => c.type === 'friend').length,
+                    groups: contactsResult.contacts.filter((c: ContactInfo) => c.type === 'group').length,
+                    officials: contactsResult.contacts.filter((c: ContactInfo) => c.type === 'official').length,
+                    other: contactsResult.contacts.filter((c: ContactInfo) => c.type === 'other').length
                 })
 
                 // 获取头像URL
-                const usernames = contactsResult.contacts.map(c => c.username)
+                const usernames = contactsResult.contacts.map((c: ContactInfo) => c.username)
                 if (usernames.length > 0) {
                     const avatarResult = await window.electronAPI.chat.enrichSessionsContactInfo(usernames)
                     if (avatarResult.success && avatarResult.contacts) {
-                        contactsResult.contacts.forEach(contact => {
+                        contactsResult.contacts.forEach((contact: ContactInfo) => {
                             const enriched = avatarResult.contacts?.[contact.username]
                             if (enriched?.avatarUrl) {
                                 contact.avatarUrl = enriched.avatarUrl
