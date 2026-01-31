@@ -142,6 +142,12 @@ class ExportService {
     this.configService = new ConfigService()
   }
 
+  private getClampedConcurrency(value: number | undefined, fallback = 2, max = 6): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+    const raw = Math.floor(value)
+    return Math.max(1, Math.min(raw, max))
+  }
+
   private cleanAccountDirName(dirName: string): string {
     const trimmed = dirName.trim()
     if (!trimmed) return trimmed
@@ -1740,9 +1746,9 @@ class ExportService {
           phase: 'exporting-media'
         })
 
-        // 并行导出媒体，限制 8 个并发
-        const MEDIA_CONCURRENCY = 8
-        await parallelLimit(mediaMessages, MEDIA_CONCURRENCY, async (msg) => {
+        // 并行导出媒体，并发数跟随导出设置
+        const mediaConcurrency = this.getClampedConcurrency(options.exportConcurrency)
+        await parallelLimit(mediaMessages, mediaConcurrency, async (msg) => {
           const mediaKey = `${msg.localType}_${msg.localId}`
           if (!mediaCache.has(mediaKey)) {
             const mediaItem = await this.exportMediaForMessage(msg, sessionId, mediaRootDir, mediaRelativePrefix, {
@@ -1956,8 +1962,8 @@ class ExportService {
           phase: 'exporting-media'
         })
 
-        const MEDIA_CONCURRENCY = 8
-        await parallelLimit(mediaMessages, MEDIA_CONCURRENCY, async (msg) => {
+        const mediaConcurrency = this.getClampedConcurrency(options.exportConcurrency)
+        await parallelLimit(mediaMessages, mediaConcurrency, async (msg) => {
           const mediaKey = `${msg.localType}_${msg.localId}`
           if (!mediaCache.has(mediaKey)) {
             const mediaItem = await this.exportMediaForMessage(msg, sessionId, mediaRootDir, mediaRelativePrefix, {
@@ -2348,8 +2354,8 @@ class ExportService {
           phase: 'exporting-media'
         })
 
-        const MEDIA_CONCURRENCY = 8
-        await parallelLimit(mediaMessages, MEDIA_CONCURRENCY, async (msg) => {
+        const mediaConcurrency = this.getClampedConcurrency(options.exportConcurrency)
+        await parallelLimit(mediaMessages, mediaConcurrency, async (msg) => {
           const mediaKey = `${msg.localType}_${msg.localId}`
           if (!mediaCache.has(mediaKey)) {
             const mediaItem = await this.exportMediaForMessage(msg, sessionId, mediaRootDir, mediaRelativePrefix, {
@@ -2653,8 +2659,8 @@ class ExportService {
           phase: 'exporting-media'
         })
 
-        const MEDIA_CONCURRENCY = 8
-        await parallelLimit(mediaMessages, MEDIA_CONCURRENCY, async (msg) => {
+        const mediaConcurrency = this.getClampedConcurrency(options.exportConcurrency)
+        await parallelLimit(mediaMessages, mediaConcurrency, async (msg) => {
           const mediaKey = `${msg.localType}_${msg.localId}`
           if (!mediaCache.has(mediaKey)) {
             const mediaItem = await this.exportMediaForMessage(msg, sessionId, mediaRootDir, mediaRelativePrefix, {
