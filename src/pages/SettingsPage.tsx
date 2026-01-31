@@ -373,7 +373,7 @@ function SettingsPage() {
 
   const applyWxidSelection = async (
     selectedWxid: string,
-    options?: { preferCurrentKeys?: boolean; showToast?: boolean; toastText?: string }
+    options?: { preferCurrentKeys?: boolean; showToast?: boolean; toastText?: string; keysOverride?: WxidKeys }
   ) => {
     if (!selectedWxid) return
 
@@ -389,9 +389,9 @@ function SettingsPage() {
     }
 
     const preferCurrentKeys = options?.preferCurrentKeys ?? false
-    const keys = preferCurrentKeys
+    const keys = options?.keysOverride ?? (preferCurrentKeys
       ? buildKeysFromState()
-      : buildKeysFromConfig(await configService.getWxidConfig(selectedWxid))
+      : buildKeysFromConfig(await configService.getWxidConfig(selectedWxid)))
 
     setWxid(selectedWxid)
     applyKeysToState(keys)
@@ -471,7 +471,7 @@ function SettingsPage() {
 
   const handleScanWxid = async (
     silent = false,
-    options?: { preferCurrentKeys?: boolean; showDialog?: boolean }
+    options?: { preferCurrentKeys?: boolean; showDialog?: boolean; keysOverride?: WxidKeys }
   ) => {
     if (!dbPath) {
       if (!silent) showMessage('请先选择数据库目录', false)
@@ -485,7 +485,8 @@ function SettingsPage() {
         await applyWxidSelection(wxids[0].wxid, {
           preferCurrentKeys: options?.preferCurrentKeys ?? false,
           showToast: !silent,
-          toastText: `已检测到账号：${wxids[0].wxid}`
+          toastText: `已检测到账号：${wxids[0].wxid}`,
+          keysOverride: options?.keysOverride
         })
       } else if (wxids.length > 1 && allowDialog) {
         setShowWxidSelect(true)
@@ -573,7 +574,9 @@ function SettingsPage() {
         setDecryptKey(result.key)
         setDbKeyStatus('密钥获取成功')
         showMessage('已自动获取解密密钥', true)
-        await handleScanWxid(true, { preferCurrentKeys: true, showDialog: false })
+        await syncCurrentKeys({ decryptKey: result.key, wxid })
+        const keysOverride = buildKeysFromInputs({ decryptKey: result.key })
+        await handleScanWxid(true, { preferCurrentKeys: true, showDialog: false, keysOverride })
       } else {
         if (result.error?.includes('未找到微信安装路径') || result.error?.includes('启动微信失败')) {
           setIsManualStartPrompt(true)
@@ -840,7 +843,7 @@ function SettingsPage() {
               const value = e.target.value
               setDecryptKey(value)
               if (value && value.length === 64) {
-                scheduleConfigSave('keys', () => syncCurrentKeys({ decryptKey: value }))
+                scheduleConfigSave('keys', () => syncCurrentKeys({ decryptKey: value, wxid }))
                 // showMessage('解密密钥已保存', true)
               }
             }}
@@ -900,11 +903,39 @@ function SettingsPage() {
             value={wxid}
             onChange={(e) => {
               const value = e.target.value
+              const previousWxid = wxid
               setWxid(value)
               scheduleConfigSave('wxid', async () => {
+                if (previousWxid && previousWxid !== value) {
+                  const currentKeys = buildKeysFromState()
+                  await configService.setWxidConfig(previousWxid, {
+                    decryptKey: currentKeys.decryptKey,
+                    imageXorKey: typeof currentKeys.imageXorKey === 'number' ? currentKeys.imageXorKey : 0,
+                    imageAesKey: currentKeys.imageAesKey
+                  })
+                }
                 if (value) {
                   await configService.setMyWxid(value)
                   await syncCurrentKeys({ wxid: value }) // Sync keys to the new wxid entry
+                }
+
+                if (value && previousWxid !== value) {
+                  if (isDbConnected) {
+                    try {
+                      await window.electronAPI.chat.close()
+                      const result = await window.electronAPI.chat.connect()
+                      setDbConnected(result.success, dbPath || undefined)
+                      if (!result.success && result.error) {
+                        showMessage(result.error, false)
+                      }
+                    } catch (e: any) {
+                      showMessage(`切换账号后重新连接失败: ${e}`, false)
+                      setDbConnected(false)
+                    }
+                  }
+                  clearAnalyticsStoreCache()
+                  resetChatStore()
+                  window.dispatchEvent(new CustomEvent('wxid-changed', { detail: { wxid: value } }))
                 }
               })
             }}
@@ -925,7 +956,7 @@ function SettingsPage() {
             setImageXorKey(value)
             const parsed = parseImageXorKey(value)
             if (value === '' || parsed !== null) {
-              scheduleConfigSave('keys', () => syncCurrentKeys({ imageXorKey: value }))
+              scheduleConfigSave('keys', () => syncCurrentKeys({ imageXorKey: value, wxid }))
             }
           }}
         />
@@ -941,7 +972,7 @@ function SettingsPage() {
           onChange={(e) => {
             const value = e.target.value
             setImageAesKey(value)
-            scheduleConfigSave('keys', () => syncCurrentKeys({ imageAesKey: value }))
+            scheduleConfigSave('keys', () => syncCurrentKeys({ imageAesKey: value, wxid }))
           }}
         />
         <button className="btn btn-secondary btn-sm" onClick={handleAutoGetImageKey} disabled={isFetchingImageKey}>
