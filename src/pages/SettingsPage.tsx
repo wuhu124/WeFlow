@@ -97,7 +97,7 @@ function SettingsPage() {
   const [exportDefaultFormat, setExportDefaultFormat] = useState('excel')
   const [exportDefaultDateRange, setExportDefaultDateRange] = useState('today')
   const [exportDefaultMedia, setExportDefaultMedia] = useState(false)
-  const [exportDefaultVoiceAsText, setExportDefaultVoiceAsText] = useState(true)
+  const [exportDefaultVoiceAsText, setExportDefaultVoiceAsText] = useState(false)
   const [exportDefaultExcelCompactColumns, setExportDefaultExcelCompactColumns] = useState(true)
   const [exportDefaultConcurrency, setExportDefaultConcurrency] = useState(2)
 
@@ -293,7 +293,7 @@ function SettingsPage() {
       setExportDefaultFormat(savedExportDefaultFormat || 'excel')
       setExportDefaultDateRange(savedExportDefaultDateRange || 'today')
       setExportDefaultMedia(savedExportDefaultMedia ?? false)
-      setExportDefaultVoiceAsText(savedExportDefaultVoiceAsText ?? true)
+      setExportDefaultVoiceAsText(savedExportDefaultVoiceAsText ?? false)
       setExportDefaultExcelCompactColumns(savedExportDefaultExcelCompactColumns ?? true)
       setExportDefaultConcurrency(savedExportDefaultConcurrency ?? 2)
 

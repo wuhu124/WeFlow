@@ -92,7 +92,7 @@ function ExportPage() {
     exportVoices: true,
     exportVideos: true,
     exportEmojis: true,
-    exportVoiceAsText: true,
+    exportVoiceAsText: false,
     excelCompactColumns: true,
     txtColumns: defaultTxtColumns,
     displayNamePreference: 'remark',
@@ -183,7 +183,7 @@ function ExportPage() {
         useAllTime: rangeDefaults.useAllTime,
         dateRange: rangeDefaults.dateRange,
         exportMedia: savedMedia ?? false,
-        exportVoiceAsText: savedVoiceAsText ?? true,
+        exportVoiceAsText: savedVoiceAsText ?? false,
         excelCompactColumns: savedExcelCompactColumns ?? true,
         txtColumns,
         exportConcurrency: savedConcurrency ?? 2
@@ -315,8 +315,7 @@ function ExportPage() {
           exportImages: true,
           exportVoices: true,
           exportVideos: true,
-          exportEmojis: true,
-          exportVoiceAsText: true
+          exportEmojis: true
         }
       }
       return next

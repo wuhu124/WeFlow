@@ -587,8 +587,12 @@ class ExportService {
       case 3: return '[图片]'
       case 34: {
         // 语音消息 - 尝试获取转写文字
-        if (sessionId && createTime) {
-          const transcript = voiceTranscribeService.getCachedTranscript(sessionId, createTime)
+        const transcriptGetter = (voiceTranscribeService as unknown as {
+          getCachedTranscript?: (sessionId: string, createTime: number) => string | null | undefined
+        }).getCachedTranscript
+
+        if (sessionId && createTime && typeof transcriptGetter === 'function') {
+          const transcript = transcriptGetter(sessionId, createTime)
           if (transcript) {
             return `[语音消息] ${transcript}`
           }
@@ -3752,7 +3756,7 @@ class ExportService {
         })
       }
 
-      const useVoiceTranscript = options.exportVoiceAsText !== false
+      const useVoiceTranscript = options.exportVoiceAsText === true
       const voiceMessages = useVoiceTranscript
         ? sortedMessages.filter(msg => msg.localType === 34)
         : []
