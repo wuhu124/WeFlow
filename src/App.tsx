@@ -34,6 +34,7 @@ import UpdateDialog from './components/UpdateDialog'
 import UpdateProgressCapsule from './components/UpdateProgressCapsule'
 import LockScreen from './components/LockScreen'
 import { GlobalSessionMonitor } from './components/GlobalSessionMonitor'
+import { BatchTranscribeGlobal } from './components/BatchTranscribeGlobal'
 
 function App() {
   const navigate = useNavigate()
@@ -359,6 +360,9 @@ function App() {
 
       {/* 全局会话监听与通知 */}
       <GlobalSessionMonitor />
+
+      {/* 全局批量转写进度浮窗 */}
+      <BatchTranscribeGlobal />
 
       {/* 用户协议弹窗 */}
       {showAgreement && !agreementLoading && (

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Search, MessageSquare, AlertCircle, Loader2, RefreshCw, X, ChevronDown, Info, Calendar, Database, Hash, Play, Pause, Image as ImageIcon, Link, Mic, CheckCircle, XCircle, Copy, Check } from 'lucide-react'
+import { Search, MessageSquare, AlertCircle, Loader2, RefreshCw, X, ChevronDown, Info, Calendar, Database, Hash, Play, Pause, Image as ImageIcon, Link, Mic, CheckCircle, Copy, Check } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { useChatStore } from '../stores/chatStore'
+import { useBatchTranscribeStore } from '../stores/batchTranscribeStore'
 import type { ChatSession, Message } from '../types/models'
 import { getEmojiPath } from 'wechat-emojis'
 import { VoiceTranscribeDialog } from '../components/VoiceTranscribeDialog'
@@ -175,17 +176,13 @@ function ChatPage(_props: ChatPageProps) {
   const [showVoiceTranscribeDialog, setShowVoiceTranscribeDialog] = useState(false)
   const [pendingVoiceTranscriptRequest, setPendingVoiceTranscriptRequest] = useState<{ sessionId: string; messageId: string } | null>(null)
 
-  // 批量语音转文字相关状态
-  const [isBatchTranscribing, setIsBatchTranscribing] = useState(false)
-  const [batchTranscribeProgress, setBatchTranscribeProgress] = useState({ current: 0, total: 0 })
+  // 批量语音转文字相关状态（进度/结果 由全局 store 管理）
+  const { isBatchTranscribing, progress: batchTranscribeProgress, showToast: showBatchProgress, startTranscribe, updateProgress, finishTranscribe, setShowToast: setShowBatchProgress } = useBatchTranscribeStore()
   const [showBatchConfirm, setShowBatchConfirm] = useState(false)
   const [batchVoiceCount, setBatchVoiceCount] = useState(0)
   const [batchVoiceMessages, setBatchVoiceMessages] = useState<Message[] | null>(null)
   const [batchVoiceDates, setBatchVoiceDates] = useState<string[]>([])
   const [batchSelectedDates, setBatchSelectedDates] = useState<Set<string>>(new Set())
-  const [showBatchProgress, setShowBatchProgress] = useState(false)
-  const [showBatchResult, setShowBatchResult] = useState(false)
-  const [batchResult, setBatchResult] = useState({ success: 0, fail: 0 })
 
   // 联系人信息加载控制
   const isEnrichingRef = useRef(false)
@@ -1280,16 +1277,13 @@ function ChatPage(_props: ChatPageProps) {
     const session = sessions.find(s => s.username === currentSessionId)
     if (!session) return
 
-    setIsBatchTranscribing(true)
-    setShowBatchProgress(true)
-    setBatchTranscribeProgress({ current: 0, total: voiceMessages.length })
+    startTranscribe(voiceMessages.length)
 
     // 检查模型状态
     const modelStatus = await window.electronAPI.whisper.getModelStatus()
     if (!modelStatus?.exists) {
       alert('SenseVoice 模型未下载，请先在设置中下载模型')
-      setIsBatchTranscribing(false)
-      setShowBatchProgress(false)
+      finishTranscribe(0, 0)
       return
     }
 
@@ -1319,15 +1313,12 @@ function ChatPage(_props: ChatPageProps) {
         if (result.success) successCount++
         else failCount++
         completedCount++
-        setBatchTranscribeProgress({ current: completedCount, total: voiceMessages.length })
+        updateProgress(completedCount, voiceMessages.length)
       })
     }
 
-    setIsBatchTranscribing(false)
-    setShowBatchProgress(false)
-    setBatchResult({ success: successCount, fail: failCount })
-    setShowBatchResult(true)
-  }, [sessions, currentSessionId, batchSelectedDates, batchVoiceMessages])
+    finishTranscribe(successCount, failCount)
+  }, [sessions, currentSessionId, batchSelectedDates, batchVoiceMessages, startTranscribe, updateProgress, finishTranscribe])
 
   // 批量转写：按日期的消息数量
   const batchCountByDate = useMemo(() => {
@@ -1475,10 +1466,16 @@ function ChatPage(_props: ChatPageProps) {
               </div>
               <div className="header-actions">
                 <button
-                  className="icon-btn batch-transcribe-btn"
-                  onClick={handleBatchTranscribe}
-                  disabled={isBatchTranscribing || !currentSessionId}
-                  title={isBatchTranscribing ? `批量转写中 (${batchTranscribeProgress.current}/${batchTranscribeProgress.total})` : '批量语音转文字'}
+                  className={`icon-btn batch-transcribe-btn${isBatchTranscribing ? ' transcribing' : ''}`}
+                  onClick={() => {
+                    if (isBatchTranscribing) {
+                      setShowBatchProgress(true)
+                    } else {
+                      handleBatchTranscribe()
+                    }
+                  }}
+                  disabled={!currentSessionId}
+                  title={isBatchTranscribing ? `批量转写中 (${batchTranscribeProgress.current}/${batchTranscribeProgress.total})，点击查看进度` : '批量语音转文字'}
                 >
                   {isBatchTranscribing ? (
                     <Loader2 size={18} className="spin" />
@@ -1807,84 +1804,6 @@ function ChatPage(_props: ChatPageProps) {
               <button className="btn-primary batch-transcribe-start-btn" onClick={confirmBatchTranscribe}>
                 <Mic size={16} />
                 开始转写
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* 批量转写进度对话框 */}
-      {showBatchProgress && createPortal(
-        <div className="batch-modal-overlay">
-          <div className="batch-modal-content batch-progress-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="batch-modal-header">
-              <Loader2 size={20} className="spin" />
-              <h3>正在转写...</h3>
-            </div>
-            <div className="batch-modal-body">
-              <div className="progress-info">
-                <div className="progress-text">
-                  <span>已完成 {batchTranscribeProgress.current} / {batchTranscribeProgress.total} 条</span>
-                  <span className="progress-percent">
-                    {batchTranscribeProgress.total > 0
-                      ? Math.round((batchTranscribeProgress.current / batchTranscribeProgress.total) * 100)
-                      : 0}%
-                  </span>
-                </div>
-                <div className="progress-bar">
-                  <div
-                    className="progress-fill"
-                    style={{
-                      width: `${batchTranscribeProgress.total > 0
-                        ? (batchTranscribeProgress.current / batchTranscribeProgress.total) * 100
-                        : 0}%`
-                    }}
-                  />
-                </div>
-              </div>
-              <div className="batch-tip">
-                <span>转写过程中可以继续使用其他功能</span>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* 批量转写结果对话框 */}
-      {showBatchResult && createPortal(
-        <div className="batch-modal-overlay" onClick={() => setShowBatchResult(false)}>
-          <div className="batch-modal-content batch-result-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="batch-modal-header">
-              <CheckCircle size={20} />
-              <h3>转写完成</h3>
-            </div>
-            <div className="batch-modal-body">
-              <div className="result-summary">
-                <div className="result-item success">
-                  <CheckCircle size={18} />
-                  <span className="label">成功:</span>
-                  <span className="value">{batchResult.success} 条</span>
-                </div>
-                {batchResult.fail > 0 && (
-                  <div className="result-item fail">
-                    <XCircle size={18} />
-                    <span className="label">失败:</span>
-                    <span className="value">{batchResult.fail} 条</span>
-                  </div>
-                )}
-              </div>
-              {batchResult.fail > 0 && (
-                <div className="result-tip">
-                  <AlertCircle size={16} />
-                  <span>部分语音转写失败，可能是语音文件损坏或网络问题</span>
-                </div>
-              )}
-            </div>
-            <div className="batch-modal-footer">
-              <button className="btn-primary" onClick={() => setShowBatchResult(false)}>
-                确定
               </button>
             </div>
           </div>
