@@ -363,7 +363,7 @@ class ExportService {
     // 检查 XML 中的 type 标签（支持大 localType 的情况）
     const xmlTypeMatch = /<type>(\d+)<\/type>/i.exec(content)
     const xmlType = xmlTypeMatch ? parseInt(xmlTypeMatch[1]) : null
-    
+
     // 特殊处理 type 49 或 XML type
     if (localType === 49 || xmlType) {
       const subType = xmlType || 0
@@ -376,7 +376,7 @@ class ExportService {
         case 2000: return 99 // 转账 -> OTHER (ChatLab 没有转账类型)
         case 5:
         case 49: return 7  // 链接 -> LINK
-        default: 
+        default:
           if (xmlType) return 7 // 有 XML type 但未知，默认为链接
       }
     }
@@ -606,7 +606,7 @@ class ExportService {
       case 49: {
         const title = this.extractXmlValue(content, 'title')
         const type = this.extractXmlValue(content, 'type')
-        
+
         // 转账消息特殊处理
         if (type === '2000') {
           const feedesc = this.extractXmlValue(content, 'feedesc')
@@ -616,7 +616,7 @@ class ExportService {
           }
           return '[转账]'
         }
-        
+
         if (type === '6') return title ? `[文件] ${title}` : '[文件]'
         if (type === '19') return title ? `[聊天记录] ${title}` : '[聊天记录]'
         if (type === '33' || type === '36') return title ? `[小程序] ${title}` : '[小程序]'
@@ -636,7 +636,7 @@ class ExportService {
         // 对于未知的 localType，检查 XML type 来判断消息类型
         if (xmlType) {
           const title = this.extractXmlValue(content, 'title')
-          
+
           // 群公告消息（type 87）
           if (xmlType === '87') {
             const textAnnouncement = this.extractXmlValue(content, 'textannouncement')
@@ -645,7 +645,7 @@ class ExportService {
             }
             return '[群公告]'
           }
-          
+
           // 转账消息
           if (xmlType === '2000') {
             const feedesc = this.extractXmlValue(content, 'feedesc')
@@ -655,18 +655,18 @@ class ExportService {
             }
             return '[转账]'
           }
-          
+
           // 其他类型
           if (xmlType === '6') return title ? `[文件] ${title}` : '[文件]'
           if (xmlType === '19') return title ? `[聊天记录] ${title}` : '[聊天记录]'
           if (xmlType === '33' || xmlType === '36') return title ? `[小程序] ${title}` : '[小程序]'
           if (xmlType === '57') return title || '[引用消息]'
           if (xmlType === '5' || xmlType === '49') return title ? `[链接] ${title}` : '[链接]'
-          
+
           // 有 title 就返回 title
           if (title) return title
         }
-        
+
         // 最后尝试提取文本内容
         return this.stripSenderPrefix(content) || null
     }
@@ -728,7 +728,7 @@ class ExportService {
       const typeMatch = /<type>(\d+)<\/type>/i.exec(normalized)
       const subType = typeMatch ? parseInt(typeMatch[1], 10) : 0
       const title = this.extractXmlValue(normalized, 'title') || this.extractXmlValue(normalized, 'appname')
-      
+
       // 群公告消息（type 87）
       if (subType === 87) {
         const textAnnouncement = this.extractXmlValue(normalized, 'textannouncement')
@@ -737,7 +737,7 @@ class ExportService {
         }
         return '[群公告]'
       }
-      
+
       // 转账消息特殊处理
       if (subType === 2000 || title.includes('转账') || normalized.includes('transfer')) {
         const feedesc = this.extractXmlValue(normalized, 'feedesc')
@@ -758,7 +758,7 @@ class ExportService {
         )
         return amount ? `[转账]${amount}` : '[转账]'
       }
-      
+
       if (subType === 3 || normalized.includes('<musicurl') || normalized.includes('<songname')) {
         const songName = this.extractXmlValue(normalized, 'songname') || title || '音乐'
         return `[音乐]${songName}`
@@ -870,17 +870,17 @@ class ExportService {
    */
   private extractRevokerInfo(content: string): { isRevoke: boolean; isSelfRevoke?: boolean; revokerWxid?: string } {
     if (!content) return { isRevoke: false }
-    
+
     // 检查是否是撤回消息
     if (!content.includes('revokemsg') && !content.includes('撤回')) {
       return { isRevoke: false }
     }
-    
+
     // 检查是否是 "你撤回了" - 自己撤回
     if (content.includes('你撤回')) {
       return { isRevoke: true, isSelfRevoke: true }
     }
-    
+
     // 尝试从 <session> 标签提取（格式: wxid_xxx）
     const sessionMatch = /<session>([^<]+)<\/session>/i.exec(content)
     if (sessionMatch) {
@@ -890,13 +890,13 @@ class ExportService {
         return { isRevoke: true, revokerWxid: session }
       }
     }
-    
+
     // 尝试从 <fromusername> 提取
     const fromUserMatch = /<fromusername>([^<]+)<\/fromusername>/i.exec(content)
     if (fromUserMatch) {
       return { isRevoke: true, revokerWxid: fromUserMatch[1].trim() }
     }
-    
+
     // 是撤回消息但无法提取撤回者
     return { isRevoke: true }
   }
@@ -1024,7 +1024,7 @@ class ExportService {
     if (content) {
       const xmlTypeMatch = /<type>(\d+)<\/type>/i.exec(content)
       const xmlType = xmlTypeMatch ? xmlTypeMatch[1] : null
-      
+
       if (xmlType) {
         switch (xmlType) {
           case '87': return '群公告'
@@ -2385,7 +2385,7 @@ class ExportService {
         // 如果有聊天记录，添加为嵌套字段
         if (msg.chatRecordList && msg.chatRecordList.length > 0) {
           const chatRecords: any[] = []
-          
+
           for (const record of msg.chatRecordList) {
             // 解析时间戳 (格式: "YYYY-MM-DD HH:MM:SS")
             let recordTimestamp = msg.createTime
@@ -2411,7 +2411,7 @@ class ExportService {
             // 转换消息类型
             let recordType = 0 // TEXT
             let recordContent = record.datadesc || record.datatitle || ''
-            
+
             switch (record.datatype) {
               case 1:
                 recordType = 0 // TEXT
@@ -2449,14 +2449,14 @@ class ExportService {
               type: recordType,
               content: recordContent
             }
-            
+
             // 添加头像（如果启用导出头像）
             if (options.exportAvatars && record.sourceheadurl) {
               chatRecord.avatar = record.sourceheadurl
             }
-            
+
             chatRecords.push(chatRecord)
-            
+
             // 添加成员信息到 memberSet
             if (record.sourcename && !collected.memberSet.has(record.sourcename)) {
               const newMember: ChatLabMember = {
@@ -2472,7 +2472,7 @@ class ExportService {
               })
             }
           }
-          
+
           message.chatRecords = chatRecords
         }
 
@@ -4512,7 +4512,7 @@ class ExportService {
           phase: 'exporting'
         })
 
-        const safeName = sessionInfo.displayName.replace(/[<>:"/\\|?*]/g, '_')
+        const safeName = sessionInfo.displayName.replace(/[<>:"\/\\|?*]/g, '_').replace(/\.+$/, '')
         const useSessionFolder = sessionLayout === 'per-session'
         const sessionDir = useSessionFolder ? path.join(outputDir, safeName) : outputDir
 
