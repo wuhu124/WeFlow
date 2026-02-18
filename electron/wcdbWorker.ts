@@ -150,9 +150,7 @@ if (parentPort) {
                 case 'verifyUser':
                     result = await core.verifyUser(payload.message, payload.hwnd)
                     break
-                case 'decryptSnsImage':
-                    result = await core.decryptSnsImage(payload.encryptedData, payload.key)
-                    break
+
                 default:
                     result = { success: false, error: `Unknown method: ${type}` }
             }

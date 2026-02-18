@@ -1479,49 +1479,30 @@ class ExportService {
         fs.mkdirSync(emojisDir, { recursive: true })
       }
 
-      // 使用消息对象中已提取的字段
-      const emojiUrl = msg.emojiCdnUrl
-      const emojiMd5 = msg.emojiMd5
+      // 使用 chatService 下载表情包 (利用其重试和 fallback 逻辑)
+      const localPath = await chatService.downloadEmojiFile(msg)
 
-      if (!emojiUrl && !emojiMd5) {
-
+      if (!localPath || !fs.existsSync(localPath)) {
         return null
       }
 
-
-
-      const key = emojiMd5 || String(msg.localId)
-      // 根据 URL 判断扩展名
-      let ext = '.gif'
-      if (emojiUrl) {
-        if (emojiUrl.includes('.png')) ext = '.png'
-        else if (emojiUrl.includes('.jpg') || emojiUrl.includes('.jpeg')) ext = '.jpg'
-      }
+      // 确定目标文件名
+      const ext = path.extname(localPath) || '.gif'
+      const key = msg.emojiMd5 || String(msg.localId)
       const fileName = `${key}${ext}`
       const destPath = path.join(emojisDir, fileName)
 
-      // 如果已存在则跳过
-      if (fs.existsSync(destPath)) {
-        return {
-          relativePath: path.posix.join(mediaRelativePrefix, 'emojis', fileName),
-          kind: 'emoji'
-        }
+      // 复制文件到导出目录 (如果不存在)
+      if (!fs.existsSync(destPath)) {
+        fs.copyFileSync(localPath, destPath)
       }
 
-      // 下载表情
-      if (emojiUrl) {
-        const downloaded = await this.downloadFile(emojiUrl, destPath)
-        if (downloaded) {
-          return {
-            relativePath: path.posix.join(mediaRelativePrefix, 'emojis', fileName),
-            kind: 'emoji'
-          }
-        } else {
-        }
+      return {
+        relativePath: path.posix.join(mediaRelativePrefix, 'emojis', fileName),
+        kind: 'emoji'
       }
-
-      return null
     } catch (e) {
+      console.error('ExportService: exportEmoji failed', e)
       return null
     }
   }

@@ -99,23 +99,29 @@ export class Isaac64 {
             this.isaac64();
             this.randcnt = 256;
         }
-        return this.randrsl[256 - (this.randcnt--)];
+        return this.randrsl[--this.randcnt];
     }
 
     /**
-     * Generates a keystream of the specified size (in bytes).
-     * @param size Size of the keystream in bytes (must be multiple of 8)
-     * @returns Buffer containing the keystream
+     * Generates a keystream where each 64-bit block is Big-Endian.
+     * This matches WeChat's behavior (Reverse index order + byte reversal).
      */
-    public generateKeystream(size: number): Buffer {
-        const stream = new BigUint64Array(size / 8);
-        for (let i = 0; i < stream.length; i++) {
-            stream[i] = this.getNext();
+    public generateKeystreamBE(size: number): Buffer {
+        const buffer = Buffer.allocUnsafe(size);
+        const fullBlocks = Math.floor(size / 8);
+
+        for (let i = 0; i < fullBlocks; i++) {
+            buffer.writeBigUInt64BE(this.getNext(), i * 8);
         }
-        // WeChat's logic specifically reverses the entire byte array
-        const buffer = Buffer.from(stream.buffer);
-        // 注意：根据 worker.html 的逻辑，它是对 Uint8Array 执行 reverse()
-        // Array.from(wasmArray).reverse()
-        return buffer.reverse();
+
+        const remaining = size % 8;
+        if (remaining > 0) {
+            const lastK = this.getNext();
+            const temp = Buffer.allocUnsafe(8);
+            temp.writeBigUInt64BE(lastK, 0);
+            temp.copy(buffer, fullBlocks * 8, 0, remaining);
+        }
+
+        return buffer;
     }
 }

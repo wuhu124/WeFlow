@@ -292,7 +292,6 @@ class SnsService {
             // 视频专用下载逻辑 (下载 -> 解密 -> 缓存)
             return new Promise(async (resolve) => {
                 const tmpPath = join(require('os').tmpdir(), `sns_video_${Date.now()}_${Math.random().toString(36).slice(2)}.enc`)
-                console.log(`[SnsService] 开始下载视频到临时文件: ${tmpPath}`)
 
                 try {
                     const https = require('https')
@@ -325,7 +324,6 @@ class SnsService {
 
                         fileStream.on('finish', async () => {
                             fileStream.close()
-                            console.log(`[SnsService] 视频下载完成，开始解密... Key: ${key}`)
 
                             try {
                                 const encryptedBuffer = await readFile(tmpPath)
@@ -334,7 +332,6 @@ class SnsService {
 
                                 if (key && String(key).trim().length > 0) {
                                     try {
-                                        console.log(`[SnsService] 使用 WASM Isaac64 解密视频... Key: ${key}`)
                                         const keyText = String(key).trim()
                                         let keystream: Buffer
 
@@ -344,9 +341,8 @@ class SnsService {
                                             keystream = await wasmService.getKeystream(keyText, 131072)
                                         } catch (wasmErr) {
                                             // 打包漏带 wasm 或 wasm 初始化异常时，回退到纯 TS ISAAC64
-                                            console.warn(`[SnsService] WASM 解密不可用，回退 Isaac64: ${wasmErr}`)
                                             const isaac = new Isaac64(keyText)
-                                            keystream = isaac.generateKeystream(131072)
+                                            keystream = isaac.generateKeystreamBE(131072)
                                         }
 
                                         const decryptLen = Math.min(keystream.length, raw.length)
@@ -358,23 +354,16 @@ class SnsService {
 
                                         // 验证 MP4 签名 ('ftyp' at offset 4)
                                         const ftyp = raw.subarray(4, 8).toString('ascii')
-                                        if (ftyp === 'ftyp') {
-                                            console.log(`[SnsService] 视频解密成功: ${url}`)
-                                        } else {
-                                            console.warn(`[SnsService] 视频解密可能失败: ${url}, 未找到 ftyp 签名: ${ftyp}`)
-                                            // 打印前 32 字节用于调试
-                                            console.warn(`[SnsService] Decrypted Header (first 32 bytes): ${raw.subarray(0, 32).toString('hex')}`)
+                                        if (ftyp !== 'ftyp') {
+                                            // 可以在此处记录解密可能失败的标记，但不打印详细 hex
                                         }
                                     } catch (err) {
                                         console.error(`[SnsService] 视频解密出错: ${err}`)
                                     }
-                                } else {
-                                    console.warn(`[SnsService] 未提供 Key，跳过解密，直接保存`)
                                 }
 
                                 // 写入最终缓存 (覆盖)
                                 await writeFile(cachePath, raw)
-                                console.log(`[SnsService] 视频已保存到缓存: ${cachePath}`)
 
                                 // 删除临时文件
                                 try { await import('fs/promises').then(fs => fs.unlink(tmpPath)) } catch (e) { }
@@ -444,8 +433,24 @@ class SnsService {
                         // 图片逻辑
                         const shouldDecrypt = (xEnc === '1' || !!key) && key !== undefined && key !== null && String(key).trim().length > 0
                         if (shouldDecrypt) {
-                            const decrypted = await wcdbService.decryptSnsImage(raw, String(key))
-                            decoded = Buffer.from(decrypted)
+                            try {
+                                const keyStr = String(key).trim()
+                                if (/^\d+$/.test(keyStr)) {
+                                    // 使用 WASM 版本的 Isaac64 解密图片
+                                    // 修正逻辑：使用带 reverse 且修正了 8字节对齐偏移的 getKeystream
+                                    const wasmService = WasmService.getInstance()
+                                    const keystream = await wasmService.getKeystream(keyStr, raw.length)
+
+                                    const decrypted = Buffer.allocUnsafe(raw.length)
+                                    for (let i = 0; i < raw.length; i++) {
+                                        decrypted[i] = raw[i] ^ keystream[i]
+                                    }
+
+                                    decoded = decrypted
+                                }
+                            } catch (e) {
+                                console.error('[SnsService] TS Decrypt Error:', e)
+                            }
                         }
 
                         // 写入磁盘缓存

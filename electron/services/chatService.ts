@@ -50,6 +50,9 @@ export interface Message {
   emojiCdnUrl?: string
   emojiMd5?: string
   emojiLocalPath?: string  // 本地缓存 castle 路径
+  emojiThumbUrl?: string
+  emojiEncryptUrl?: string
+  emojiAesKey?: string
   // 引用消息相关
   quotedContent?: string
   quotedSender?: string
@@ -1151,6 +1154,9 @@ class ChatService {
         const emojiInfo = this.parseEmojiInfo(content)
         emojiCdnUrl = emojiInfo.cdnUrl
         emojiMd5 = emojiInfo.md5
+        cdnThumbUrl = emojiInfo.thumbUrl // 复用 cdnThumbUrl 字段或使用 emojiThumbUrl
+        // 注意：Message 接口定义的 emojiThumbUrl，这里我们统一一下
+        // 如果 Message 接口有 emojiThumbUrl，则使用它
       } else if (localType === 3 && content) {
         const imageInfo = this.parseImageInfo(content)
         imageMd5 = imageInfo.md5
@@ -1373,7 +1379,7 @@ class ChatService {
   /**
    * 解析表情包信息
    */
-  private parseEmojiInfo(content: string): { cdnUrl?: string; md5?: string } {
+  private parseEmojiInfo(content: string): { cdnUrl?: string; md5?: string; thumbUrl?: string; encryptUrl?: string; aesKey?: string } {
     try {
       // 提取 cdnurl
       let cdnUrl: string | undefined
@@ -1387,16 +1393,15 @@ class ChatService {
         }
       }
 
-      // 如果没有 cdnurl，尝试 thumburl
-      if (!cdnUrl) {
-        const thumbUrlMatch = /thumburl\s*=\s*['"]([^'"]+)['"]/i.exec(content) || /thumburl\s*=\s*([^'"]+?)(?=\s|\/|>)/i.exec(content)
-        if (thumbUrlMatch) {
-          cdnUrl = thumbUrlMatch[1].replace(/&amp;/g, '&')
-          if (cdnUrl.includes('%')) {
-            try {
-              cdnUrl = decodeURIComponent(cdnUrl)
-            } catch { }
-          }
+      // 提取 thumburl
+      let thumbUrl: string | undefined
+      const thumbUrlMatch = /thumburl\s*=\s*['"]([^'"]+)['"]/i.exec(content) || /thumburl\s*=\s*([^'"]+?)(?=\s|\/|>)/i.exec(content)
+      if (thumbUrlMatch) {
+        thumbUrl = thumbUrlMatch[1].replace(/&amp;/g, '&')
+        if (thumbUrl.includes('%')) {
+          try {
+            thumbUrl = decodeURIComponent(thumbUrl)
+          } catch { }
         }
       }
 
@@ -1404,9 +1409,23 @@ class ChatService {
       const md5Match = /md5\s*=\s*['"]([a-fA-F0-9]+)['"]/i.exec(content) || /md5\s*=\s*([a-fA-F0-9]+)/i.exec(content)
       const md5 = md5Match ? md5Match[1] : undefined
 
-      // 不构造假 URL，只返回真正的 cdnurl
-      // 没有 cdnUrl 时保持静默，交由后续回退逻辑处理
-      return { cdnUrl, md5 }
+      // 提取 encrypturl
+      let encryptUrl: string | undefined
+      const encryptUrlMatch = /encrypturl\s*=\s*['"]([^'"]+)['"]/i.exec(content) || /encrypturl\s*=\s*([^'"]+?)(?=\s|\/|>)/i.exec(content)
+      if (encryptUrlMatch) {
+        encryptUrl = encryptUrlMatch[1].replace(/&amp;/g, '&')
+        if (encryptUrl.includes('%')) {
+          try {
+            encryptUrl = decodeURIComponent(encryptUrl)
+          } catch { }
+        }
+      }
+
+      // 提取 aeskey
+      const aesKeyMatch = /aeskey\s*=\s*['"]([a-zA-Z0-9]+)['"]/i.exec(content) || /aeskey\s*=\s*([a-zA-Z0-9]+)/i.exec(content)
+      const aesKey = aesKeyMatch ? aesKeyMatch[1] : undefined
+
+      return { cdnUrl, md5, thumbUrl, encryptUrl, aesKey }
     } catch (e) {
       console.error('[ChatService] 表情包解析失败:', e, { xml: content })
       return {}
@@ -2622,11 +2641,7 @@ class ChatService {
     // 检查内存缓存
     const cached = emojiCache.get(cacheKey)
     if (cached && existsSync(cached)) {
-      // 读取文件并转为 data URL
-      const dataUrl = this.fileToDataUrl(cached)
-      if (dataUrl) {
-        return { success: true, localPath: dataUrl }
-      }
+      return { success: true, localPath: cached }
     }
 
     // 检查是否正在下载
@@ -2634,10 +2649,7 @@ class ChatService {
     if (downloading) {
       const result = await downloading
       if (result) {
-        const dataUrl = this.fileToDataUrl(result)
-        if (dataUrl) {
-          return { success: true, localPath: dataUrl }
-        }
+        return { success: true, localPath: result }
       }
       return { success: false, error: '下载失败' }
     }
@@ -2654,10 +2666,7 @@ class ChatService {
       const filePath = join(cacheDir, `${cacheKey}${ext}`)
       if (existsSync(filePath)) {
         emojiCache.set(cacheKey, filePath)
-        const dataUrl = this.fileToDataUrl(filePath)
-        if (dataUrl) {
-          return { success: true, localPath: dataUrl }
-        }
+        return { success: true, localPath: filePath }
       }
     }
 
@@ -2671,10 +2680,7 @@ class ChatService {
 
       if (localPath) {
         emojiCache.set(cacheKey, localPath)
-        const dataUrl = this.fileToDataUrl(localPath)
-        if (dataUrl) {
-          return { success: true, localPath: dataUrl }
-        }
+        return { success: true, localPath }
       }
       return { success: false, error: '下载失败' }
     } catch (e) {
@@ -3917,6 +3923,13 @@ class ChatService {
       const imgInfo = this.parseImageInfo(rawContent)
       Object.assign(msg, imgInfo)
       msg.imageDatName = this.parseImageDatNameFromRow(row)
+    } else if (msg.localType === 47) { // Emoji
+      const emojiInfo = this.parseEmojiInfo(rawContent)
+      msg.emojiCdnUrl = emojiInfo.cdnUrl
+      msg.emojiMd5 = emojiInfo.md5
+      msg.emojiThumbUrl = emojiInfo.thumbUrl
+      msg.emojiEncryptUrl = emojiInfo.encryptUrl
+      msg.emojiAesKey = emojiInfo.aesKey
     }
 
     return msg
@@ -4226,6 +4239,34 @@ class ChatService {
       console.error('ChatService: 执行自定义查询失败:', e)
       return { success: false, error: String(e) }
     }
+  }
+
+
+  /**
+   * 下载表情包文件（用于导出，返回文件路径）
+   */
+  async downloadEmojiFile(msg: Message): Promise<string | null> {
+    if (!msg.emojiMd5) return null
+    let url = msg.emojiCdnUrl
+
+    // 尝试获取 URL
+    if (!url && msg.emojiEncryptUrl) {
+      console.warn('[ChatService] Emoji has only encryptUrl:', msg.emojiMd5)
+    }
+
+    if (!url) {
+      await this.fallbackEmoticon(msg)
+      url = msg.emojiCdnUrl
+    }
+
+    if (!url) return null
+
+    // Reuse existing downloadEmoji method
+    const result = await this.downloadEmoji(url, msg.emojiMd5)
+    if (result.success && result.localPath) {
+      return result.localPath
+    }
+    return null
   }
 }
 

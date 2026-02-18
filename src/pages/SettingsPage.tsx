@@ -74,7 +74,7 @@ function SettingsPage() {
   const exportExcelColumnsDropdownRef = useRef<HTMLDivElement>(null)
   const exportConcurrencyDropdownRef = useRef<HTMLDivElement>(null)
   const [cachePath, setCachePath] = useState('')
-  const [weixinDllPath, setWeixinDllPath] = useState('')
+
   const [logEnabled, setLogEnabled] = useState(false)
   const [whisperModelName, setWhisperModelName] = useState('base')
   const [whisperModelDir, setWhisperModelDir] = useState('')
@@ -250,7 +250,7 @@ function SettingsPage() {
       const savedPath = await configService.getDbPath()
       const savedWxid = await configService.getMyWxid()
       const savedCachePath = await configService.getCachePath()
-      const savedWeixinDllPath = await configService.getWeixinDllPath()
+
       const savedExportPath = await configService.getExportPath()
       const savedLogEnabled = await configService.getLogEnabled()
       const savedImageXorKey = await configService.getImageXorKey()
@@ -279,7 +279,7 @@ function SettingsPage() {
       if (savedPath) setDbPath(savedPath)
       if (savedWxid) setWxid(savedWxid)
       if (savedCachePath) setCachePath(savedCachePath)
-      if (savedWeixinDllPath) setWeixinDllPath(savedWeixinDllPath)
+
 
       const wxidConfig = savedWxid ? await configService.getWxidConfig(savedWxid) : null
       const decryptKeyToUse = wxidConfig?.decryptKey ?? savedKey ?? ''
@@ -616,29 +616,7 @@ function SettingsPage() {
     await applyWxidSelection(selectedWxid)
   }
 
-  const handleSelectWeixinDllPath = async () => {
-    try {
-      const result = await dialog.openFile({
-        title: '选择 Weixin.dll 文件',
-        properties: ['openFile'],
-        filters: [{ name: 'DLL', extensions: ['dll'] }]
-      })
-      if (!result.canceled && result.filePaths.length > 0) {
-        const selectedPath = result.filePaths[0]
-        setWeixinDllPath(selectedPath)
-        await configService.setWeixinDllPath(selectedPath)
-        showMessage('已选择 Weixin.dll 路径', true)
-      }
-    } catch {
-      showMessage('选择 Weixin.dll 失败', false)
-    }
-  }
 
-  const handleResetWeixinDllPath = async () => {
-    setWeixinDllPath('')
-    await configService.setWeixinDllPath('')
-    showMessage('已清空 Weixin.dll 路径', true)
-  }
   const handleSelectCachePath = async () => {
     try {
       const result = await dialog.openFile({ title: '选择缓存目录', properties: ['openDirectory'] })
@@ -1332,28 +1310,7 @@ function SettingsPage() {
         </div>
       </div>
 
-      <div className="form-group">
-        <label>Weixin.dll 路径 <span className="optional">(可选)</span></label>
-        <span className="form-hint">用于朋友圈在线图片原生解密，优先使用这里配置的 DLL</span>
-        <input
-          type="text"
-          placeholder="例如: D:\weixindata\Weixin\Weixin.dll"
-          value={weixinDllPath}
-          onChange={(e) => {
-            const value = e.target.value
-            setWeixinDllPath(value)
-            scheduleConfigSave('weixinDllPath', () => configService.setWeixinDllPath(value))
-          }}
-        />
-        <div className="btn-row">
-          <button className="btn btn-secondary" onClick={handleSelectWeixinDllPath}>
-            <FolderOpen size={16} /> 浏览选择
-          </button>
-          <button className="btn btn-secondary" onClick={handleResetWeixinDllPath}>
-            清空
-          </button>
-        </div>
-      </div>
+
 
       <div className="form-group">
         <label>账号 wxid</label>

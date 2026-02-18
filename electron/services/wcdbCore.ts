@@ -66,7 +66,7 @@ export class WcdbCore {
   private wcdbStopMonitorPipe: any = null
 
   private monitorPipeClient: any = null
-  private wcdbDecryptSnsImage: any = null
+
 
   private avatarUrlCache: Map<string, { url?: string; updatedAt: number }> = new Map()
   private readonly avatarCacheTtlMs = 10 * 60 * 1000
@@ -144,42 +144,7 @@ export class WcdbCore {
     }
   }
 
-  /**
-   * 解密朋友圈图片
-   */
-  async decryptSnsImage(encryptedData: Buffer, key: string): Promise<Buffer> {
-    if (!this.initialized) {
-      const initOk = await this.initialize()
-      if (!initOk) return encryptedData
-    }
 
-    if (!this.wcdbDecryptSnsImage) return encryptedData
-
-    try {
-      if (!this.wcdbDecryptSnsImage) {
-        console.error('[WCDB] wcdbDecryptSnsImage func is null')
-        return encryptedData
-      }
-
-      const outPtr = [null as any]
-      // Koffi pass Buffer as char* pointer
-      const result = this.wcdbDecryptSnsImage(encryptedData, encryptedData.length, key, outPtr)
-
-      if (result === 0 && outPtr[0]) {
-        const hex = this.decodeJsonPtr(outPtr[0])
-        if (hex) {
-          return Buffer.from(hex, 'hex')
-        }
-      } else {
-        console.error(`[WCDB] Decrypt SNS image failed with code: ${result}`)
-        // 主动获取 DLL 内部日志以诊断问题
-        await this.printLogs(true)
-      }
-    } catch (e) {
-      console.error('解密图片失败:', e)
-    }
-    return encryptedData
-  }
 
   stopMonitor(): void {
     if (this.monitorPipeClient) {
@@ -602,12 +567,7 @@ export class WcdbCore {
         this.wcdbVerifyUser = null
       }
 
-      // wcdb_status wcdb_decrypt_sns_image(const char* encrypted_data, int32_t data_len, const char* key, char** out_hex)
-      try {
-        this.wcdbDecryptSnsImage = this.lib.func('int32 wcdb_decrypt_sns_image(const char* data, int32 len, const char* key, _Out_ void** outHex)')
-      } catch {
-        this.wcdbDecryptSnsImage = null
-      }
+
 
       // 初始化
       const initResult = this.wcdbInit()

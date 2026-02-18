@@ -46,7 +46,6 @@ export class WasmService {
                 const wasmPath = path.join(basePath, 'wasm_video_decode.wasm');
                 const jsPath = path.join(basePath, 'wasm_video_decode.js');
 
-                console.log('[WasmService] Loading WASM from:', wasmPath);
 
                 if (!fs.existsSync(wasmPath) || !fs.existsSync(jsPath)) {
                     throw new Error(`WASM files not found at ${basePath}`);
@@ -88,7 +87,6 @@ export class WasmService {
                 // Define Module
                 mockGlobal.Module = {
                     onRuntimeInitialized: () => {
-                        console.log("[WasmService] WASM Runtime Initialized");
                         this.wasmLoaded = true;
                         resolve();
                     },
@@ -133,10 +131,24 @@ export class WasmService {
     }
 
     public async getKeystream(key: string, size: number = 131072): Promise<Buffer> {
+        // ISAAC-64 uses 8-byte blocks. If size is not a multiple of 8,
+        // the global reverse() will cause a shift in alignment.
+        const alignSize = Math.ceil(size / 8) * 8;
+        const buffer = await this.getRawKeystream(key, alignSize);
+
+        // Reverse the entire aligned buffer
+        const reversed = new Uint8Array(buffer);
+        reversed.reverse();
+
+        // Return exactly the requested size from the beginning of the reversed stream.
+        // Since we reversed the 'aligned' buffer, index 0 is the last byte of the last block.
+        return Buffer.from(reversed).subarray(0, size);
+    }
+
+    public async getRawKeystream(key: string, size: number = 131072): Promise<Buffer> {
         await this.init();
 
         if (!this.module || !this.module.WxIsaac64) {
-            // Fallback check for asm.WxIsaac64 logic if needed, but debug showed it on Module
             if (this.module.asm && this.module.asm.WxIsaac64) {
                 this.module.WxIsaac64 = this.module.asm.WxIsaac64;
             }
@@ -149,26 +161,19 @@ export class WasmService {
         try {
             this.capturedKeystream = null;
             const isaac = new this.module.WxIsaac64(key);
-            isaac.generate(size); // This triggers the global.wasm_isaac_generate callback
+            isaac.generate(size);
 
-            // Cleanup if possible? isaac.delete()? 
-            // In worker code: p.decryptor.delete()
             if (isaac.delete) {
                 isaac.delete();
             }
 
             if (this.capturedKeystream) {
-                // The worker_release.js logic does: 
-                // p.decryptor_array.set(r.reverse())
-                // So the actual keystream is the REVERSE of what is passed to the callback.
-                const reversed = new Uint8Array(this.capturedKeystream);
-                reversed.reverse();
-                return Buffer.from(reversed);
+                return Buffer.from(this.capturedKeystream);
             } else {
                 throw new Error('[WasmService] Failed to capture keystream (callback not called)');
             }
         } catch (error) {
-            console.error('[WasmService] Error generating keystream:', error);
+            console.error('[WasmService] Error generating raw keystream:', error);
             throw error;
         }
     }
